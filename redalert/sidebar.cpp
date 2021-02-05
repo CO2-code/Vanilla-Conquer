@@ -160,6 +160,11 @@ SidebarClass::SidebarClass(void)
     */
     new (&Column[0]) StripClass(InitClass());
     new (&Column[1]) StripClass(InitClass());
+
+    Column[0].X = COLUMN_ONE_X * RESFACTOR;
+    Column[0].Y = COLUMN_ONE_Y * RESFACTOR;
+    Column[1].X = COLUMN_TWO_X * RESFACTOR;
+    Column[1].Y = COLUMN_TWO_Y * RESFACTOR;
 }
 
 /***********************************************************************************************
@@ -209,12 +214,6 @@ SidebarClass::SidebarClass(NoInitClass const& x)
  *=============================================================================================*/
 void SidebarClass::One_Time(void)
 {
-    /* Set RESFACTOR positions.  */
-    SidebarClass::Background.X = (int)((int)SIDE_X + 8) * RESFACTOR;
-    SidebarClass::Background.Y = (int)SIDE_Y * RESFACTOR;
-    SidebarClass::Background.Width = (int)((int)SIDE_WIDTH - 1) * RESFACTOR - 1;
-    SidebarClass::Background.Height = (int)((int)SIDE_HEIGHT - 1) * RESFACTOR;
-
     PowerClass::One_Time();
 
     /*
@@ -237,10 +236,10 @@ void SidebarClass::One_Time(void)
     **	Set up the coordinates for the sidebar strips. These coordinates are for
     **	the upper left corner.
     */
-    Column[0].X = COLUMN_ONE_X * RESFACTOR;
-    Column[0].Y = COLUMN_ONE_Y * RESFACTOR;
-    Column[1].X = COLUMN_TWO_X * RESFACTOR;
-    Column[1].Y = COLUMN_TWO_Y * RESFACTOR;
+    //	Column[0].X = COLUMN_ONE_X * RESFACTOR;
+    //	Column[0].Y = COLUMN_ONE_Y * RESFACTOR;
+    //	Column[1].X = COLUMN_TWO_X * RESFACTOR;
+    //	Column[1].Y = COLUMN_TWO_Y * RESFACTOR;
     Column[0].One_Time(0);
     Column[1].One_Time(1);
 
@@ -311,7 +310,7 @@ void SidebarClass::Init_IO(void)
 
         Upgrade.IsSticky = true;
         Upgrade.ID = BUTTON_UPGRADE;
-        Upgrade.X = (RESFACTOR == 1) ? 271 : 0x21f;
+        Upgrade.X = 0x21f;
         Upgrade.Y = (0x96 / 2) * RESFACTOR;
         Upgrade.IsPressed = false;
         Upgrade.IsToggleType = true;
@@ -833,11 +832,36 @@ void SidebarClass::AI(KeyNumType& input, int x, int y)
     } else if (!Debug_Map) {
         Activate(1); // Force the sidebar always on in Win95 mode
     }
-
     if (!Debug_Map) {
         Column[0].AI(input, x, y);
         Column[1].AI(input, x, y);
     }
+
+#ifdef NEVER
+    if (IsSidebarActive && !Debug_Map) {
+
+        if (input == KN_DOWN) {
+            int scr = 0;
+            scr |= Column[0].Scroll(false);
+            scr |= Column[1].Scroll(false);
+            if (!scr) {
+                Sound_Effect(VOC_SCOLD);
+            }
+            redraw |= scr;
+            input = KN_NONE;
+        }
+        if (input == KN_UP) {
+            int scr = 0;
+            scr |= Column[0].Scroll(true);
+            scr |= Column[1].Scroll(true);
+            if (!scr) {
+                Sound_Effect(VOC_SCOLD);
+            }
+            redraw |= scr;
+            input = KN_NONE;
+        }
+    }
+#endif
 
     if (IsSidebarActive) {
 
@@ -951,9 +975,8 @@ bool SidebarClass::Activate(int control)
 
     bool old = IsSidebarActive;
 
-    if (Session.Attract) {
+    if (Session.Attract)
         return (old);
-    }
 
     /*
     **	Determine the new state of the sidebar.
@@ -1250,7 +1273,7 @@ void SidebarClass::StripClass::Reload_LogoShapes(void)
     /*
     ** Load hi-res strip art here since it is player side specific
     */
-    static const char* stripnames[] = {
+    static char* stripnames[] = {
         "stripna.shp", // Nato
         "stripna.shp",
         "stripus.shp", // USSR
@@ -1933,6 +1956,8 @@ SidebarClass::StripClass::SelectClass::SelectClass(void)
     , Strip(0)
     , Index(0)
 {
+    Width = (OBJECT_WIDTH - 1) * RESFACTOR;
+    Height = OBJECT_HEIGHT * RESFACTOR;
 }
 
 /***********************************************************************************************
@@ -2378,9 +2403,9 @@ void SidebarClass::Zoom_Mode_Control(void)
             }
         } else {
             if (!Spying_On_House() && !Is_Player_Names()) {
-                Player_Names(true);
+                Player_Names(1);
             } else {
-                Player_Names(false);
+                Player_Names(0);
                 if (!Spy_Next_House()) {
                     Zoom_Mode(Coord_Cell(TacticalCoord));
                 }
