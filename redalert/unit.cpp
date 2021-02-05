@@ -172,7 +172,7 @@ void Recoil_Adjust(DirType dir, int& x, int& y)
  *   04/11/1994 JLB : Created.                                                                 *
  *   04/21/1994 JLB : Converted to operator new.                                               *
  *=============================================================================================*/
-void* UnitClass::operator new(size_t) noexcept
+void* UnitClass::operator new(size_t)
 {
     void* ptr = Units.Alloc();
     if (ptr != NULL) {
@@ -701,7 +701,7 @@ void UnitClass::Firing_AI(void)
  * HISTORY:                                                                                    *
  *   05/22/1994 JLB : Created.                                                                 *
  *=============================================================================================*/
-RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType message, int& param)
+RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType message, long& param)
 {
     assert(Units.ID(this) == ID);
     assert(IsActive);
@@ -825,7 +825,7 @@ RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType m
                     if (cell == 0) {
                         Transmit_Message(RADIO_OVER_OUT, from);
                     } else {
-                        param = ::As_Target(cell);
+                        param = (long)::As_Target(cell);
                         Do_Turn(dir);
 
                         /*
@@ -860,7 +860,7 @@ RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType m
 #else
                             if (*this != UNIT_APC || Is_Door_Open()) {
 #endif
-                                param = As_Target();
+                                param = (long)As_Target();
                                 Transmit_Message(RADIO_TETHER);
                                 if (Transmit_Message(RADIO_MOVE_HERE, param, from) != RADIO_ROGER) {
                                     Transmit_Message(RADIO_OVER_OUT, from);
@@ -1392,11 +1392,8 @@ void UnitClass::Enter_Idle_Mode(bool initial)
 #endif
         } else {
 
-            if (Mission == MISSION_GUARD || Mission == MISSION_GUARD_AREA) {
-                return;
-            }
-
-            if (Mission != MISSION_NONE && (MissionControl[Mission].IsParalyzed || MissionControl[Mission].IsZombie)) {
+            if (Mission == MISSION_NONE || Mission == MISSION_GUARD || Mission == MISSION_GUARD_AREA
+                || MissionControl[Mission].IsParalyzed || MissionControl[Mission].IsZombie) {
                 return;
             }
 
@@ -1804,7 +1801,7 @@ void UnitClass::Per_Cell_Process(PCPType why)
         ** If this is a mobile gap generator, restore the shroud where appropriate
         ** and re-shroud around us.
         */
-        if (Class->IsGapper) {
+        if (Class->IsGapper && !House->IsPlayerControl) {
             Shroud_Regen();
         }
 
@@ -2326,7 +2323,7 @@ bool UnitClass::Goto_Tiberium(int rad)
                     int corner[2];
                     int corners[4][2] = {{x, -radius}, {x, +radius}, {-radius, x}, {+radius, x}};
                     for (int i = 0; i < 3; i++) {
-                        int j = i + Random_Pick(0, 0x7FFF) / (0x7FFF / (4 - i) + 1);
+                        int j = i + Scen.RandomNumber(0, 0x7fff) / (0x7fff / (4 - i) + 1);
                         memcpy(&corner, &corners[j], sizeof(corner));
                         memcpy(&corners[j], &corners[i], sizeof(corner));
                         memcpy(&corners[i], corner, sizeof(corner));
@@ -4965,7 +4962,7 @@ void UnitClass::Write_INI(CCINIClass& ini)
     for (int index = 0; index < Units.Count(); index++) {
         UnitClass* unit = Units.Ptr(index);
         if (unit != NULL && !unit->IsInLimbo && unit->IsActive) {
-            char uname[12];
+            char uname[10];
             char buf[128];
 
             sprintf(uname, "%d", index);
@@ -5267,7 +5264,7 @@ void UnitClass::Shroud_Regen(void)
 
             if (IsActive && Strength) {
                 // Now shroud around the new center
-                ShroudBits = 0;
+                ShroudBits = 0L;
                 ShroudCenter = Coord_Cell(Center_Coord());
                 centerx = Cell_X(ShroudCenter);
                 centery = Cell_Y(ShroudCenter);
