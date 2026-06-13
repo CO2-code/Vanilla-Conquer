@@ -701,7 +701,7 @@ void UnitClass::Firing_AI(void)
  * HISTORY:                                                                                    *
  *   05/22/1994 JLB : Created.                                                                 *
  *=============================================================================================*/
-RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType message, long& param)
+RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType message, int& param)
 {
     assert(Units.ID(this) == ID);
     assert(IsActive);
@@ -733,7 +733,7 @@ RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType m
     **	so that proper unloading may take place.
     */
     case RADIO_BACKUP_NOW:
-        DriveClass::Receive_Message(from, message, param);
+        FootClass::Receive_Message(from, message, param);
         if (!IsRotating && PrimaryFacing != DIR_W) {
             Do_Turn(DIR_W);
         } else {
@@ -854,7 +854,7 @@ RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType m
                         **	already at the staging location, then tell it to move onto the transport
                         **	directly.
                         */
-                        if (Transmit_Message(RADIO_MOVE_HERE, param, from) == RADIO_YEA_NOW_WHAT) {
+                        if (Transmit_Message(RADIO_MOVE_HERE, (int&)param, from) == RADIO_YEA_NOW_WHAT) {
 #ifdef FIXIT_PHASETRANSPORT //	checked - ajw 9/28/98
                             if ((*this != UNIT_APC && *this != UNIT_PHASE) || Is_Door_Open()) {
 #else
@@ -862,7 +862,7 @@ RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType m
 #endif
                                 param = (long)As_Target();
                                 Transmit_Message(RADIO_TETHER);
-                                if (Transmit_Message(RADIO_MOVE_HERE, param, from) != RADIO_ROGER) {
+                                if (Transmit_Message(RADIO_MOVE_HERE, (int&)param, from) != RADIO_ROGER) {
                                     Transmit_Message(RADIO_OVER_OUT, from);
                                 } else {
                                     Contact_With_Whom()->Unselect();
@@ -900,10 +900,10 @@ RadioMessageType UnitClass::Receive_Message(RadioClass* from, RadioMessageType m
         if (Mission == MISSION_RETURN) {
             Assign_Mission(MISSION_GUARD);
         }
-        DriveClass::Receive_Message(from, message, param);
+        FootClass::Receive_Message(from, message, param);
         return (RADIO_ROGER);
     }
-    return (DriveClass::Receive_Message(from, message, param));
+    return (FootClass::Receive_Message(from, message, param));
 }
 
 /***********************************************************************************************
