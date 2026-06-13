@@ -305,34 +305,24 @@ int LoadReplayClass::Process(void)
         KeyNumType input = commands->Input();
 
         /*
-        ** The first time through the processing loop, set the edit
-        ** gadget to have the focus if this is the save dialog. The
-        ** focus must be set here since the gadget list has changed
-        ** and this change will cause any previous focus setting to be
-        ** cleared by the input processing routine.
+        ** The first time through the processing loop, select the first
+        ** item in the list so the user can see what's available.
         */
+        if (firsttime) {
             firsttime = false;
-           // editbtn.Set_Focus();
-            editbtn.Flag_To_Redraw();
+            listbtn.Set_Selected_Index(0);
+            listbtn.Flag_To_Redraw();
+        }
 
         /*
-        ** If the <RETURN> key was pressed, then default to the appropriate
-        ** action button according to the style of this dialog box.
+        ** If the <RETURN> key was pressed, then default to the load action.
         */
-        if (input == KN_RETURN || input == (BUTTON_EDIT | KN_BUTTON)) {
-            ToggleClass* toggle = NULL;
-                input = (KeyNumType)(BUTTON_LOAD | KN_BUTTON);
-                cancelbtn.Turn_Off();
-                toggle = (ToggleClass*)commands->Extract_Gadget(BUTTON_LOAD);
-                if (toggle != NULL) {
-                    toggle->IsOn = true;
-                    toggle->IsPressed = true;
-                }
-
-            }
+        if (input == KN_RETURN) {
+            input = (KeyNumType)(BUTTON_LOAD | KN_BUTTON);
             Hide_Mouse();
             commands->Draw_All(true);
             Show_Mouse();
+        }
         
 
         /*
@@ -436,9 +426,6 @@ void LoadReplayClass::Clear_List(ListClass* list)
 void LoadReplayClass::Fill_List(ListClass* list)
 {
     ReplayFileEntryClass* fdata; // for adding entries to 'Files'
-    char descr[DESCRIP_MAX + 32];
-    unsigned scenario; // scenario #
-    HousesType house;  // house
     Find_File_Data* ff = nullptr;
     int id = 0;
 
@@ -448,9 +435,9 @@ void LoadReplayClass::Fill_List(ListClass* list)
     Clear_List(list);
 
     /*
-    ** Find all savegame files
+    ** Find all replay files
     */
-    bool rc = Find_First("*.REPLAY*", 0, &ff);
+    bool rc = Find_First("*.REPLAY", 0, &ff);
 
     while (rc) {
 
@@ -458,7 +445,7 @@ void LoadReplayClass::Fill_List(ListClass* list)
             /*
             ** Extract the game ID from the filename
             */
-            id = id++;
+            id++;
 
             /*
             ** get the game's info; if success, add it to the list
@@ -481,7 +468,7 @@ void LoadReplayClass::Fill_List(ListClass* list)
             fdata->Valid = ok;
             fdata->Scenario = 0;  //scenario;
             fdata->House = (HousesType)0; //house;
-            fdata->Num = id++;
+            fdata->Num = id;
             fdata->DateTime = ff->GetTime();
             Files.Add(fdata);
 
@@ -496,7 +483,7 @@ void LoadReplayClass::Fill_List(ListClass* list)
     /*
     ** Now sort the list in order of Date/Time (newest first, oldest last)
     */
-    qsort((void*)(&Files[0]), Files.Count(), sizeof(class FileEntryClass*), LoadReplayClass::Compare);
+    qsort((void*)(&Files[0]), Files.Count(), sizeof(ReplayFileEntryClass*), LoadReplayClass::Compare);
 
     /*
     ** Now add every file's name to the list box

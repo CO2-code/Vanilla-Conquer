@@ -96,6 +96,7 @@ set(REDALERT_SRC
     power.cpp
     profile.cpp
     queue.cpp
+    replaydlg.cpp
     radar.cpp
     radio.cpp
     rawolapi.cpp
