@@ -3291,6 +3291,9 @@ void CellClass::Set_Mapped(HouseClass* player, bool set)
  *=============================================================================================*/
 bool CellClass::Is_Mapped(HousesType house) const
 {
+    if (Session.Play) {
+        return true;
+    }
     int shift = (int)house;
     return (IsMappedByPlayerMask & (1 << shift)) ? true : false;
 }
@@ -3304,6 +3307,9 @@ bool CellClass::Is_Mapped(HousesType house) const
  *=============================================================================================*/
 bool CellClass::Is_Mapped(HouseClass* player) const
 {
+    if (Session.Play) {
+        return true;
+    }
     if (player && player->Class) {
         return Is_Mapped(player->Class->House);
     }
@@ -3353,6 +3359,9 @@ void CellClass::Set_Visible(HouseClass* player, bool set)
  *=============================================================================================*/
 bool CellClass::Is_Visible(HousesType house) const
 {
+    if (Session.Play) {
+        return true;
+    }
     int shift = (int)house;
     return (IsVisibleByPlayerMask & (1 << shift)) ? true : false;
 }
@@ -3366,6 +3375,9 @@ bool CellClass::Is_Visible(HousesType house) const
  *=============================================================================================*/
 bool CellClass::Is_Visible(HouseClass* player) const
 {
+    if (Session.Play) {
+        return true;
+    }
     if (player && player->Class) {
         return Is_Visible(player->Class->House);
     }
