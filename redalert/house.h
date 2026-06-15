@@ -309,6 +309,17 @@ public:
     unsigned IsQueuedMovementToggle : 1;
 
     /*
+    **  Is this house a spectator? A spectator has no units or buildings
+    **  but can watch the game. Used by CnCNet.
+    */
+    unsigned IsSpectator : 1;
+
+    /*
+    **  Spawn location override, used by CnCNet for selectable spawn locations.
+    */
+    int SpawnLocationOverride;
+
+    /*
     **	This value indicates the degree of smartness to assign to this house.
     **	A value of zero indicates that the player controls everything.
     */

@@ -110,6 +110,7 @@ set(REDALERT_SRC
     seditdlg.cpp
     session.cpp
     shapebtn.cpp
+    spectator.cpp
     sidebar.cpp
     slider.cpp
     smudge.cpp
