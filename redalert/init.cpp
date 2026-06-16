@@ -61,6 +61,7 @@
 #include "msgbox.h"
 #include "loaddlg.h"
 #include "replaydlg.h"
+#include "spectator.h"
 
 #ifdef NETWORKING
 #include "wsproto.h"
@@ -316,8 +317,9 @@ bool Init_Game(int, char*[])
 
     /*
     **	Play the startup animation.
+    **	Skip intro movies when launched via CnCNet spawner (-SPAWN).
     */
-    if (!Special.IsFromInstall) {
+    if (!Special.IsFromInstall && !Spawner_Check_Command_Line()) {
         VisiblePage.Clear();
         //		Mono_Printf("Playing Intro\n");
         Play_Intro();
@@ -688,6 +690,17 @@ LoadMenuType Select_Load_Menu_Type(void)
  *=============================================================================================*/
 bool Select_Game(bool fade)
 {
+    // Track whether the spawner was active so we skip the menu later.
+    bool spawnerActive = false;
+
+    // Check if the CnCNet spawner is active (launched with -SPAWN).
+    // If so, initialize from SPAWN.INI and skip the main menu.
+    if (Spawner_Check_Command_Line()) {
+        if (Spawner_Initialize()) {
+            spawnerActive = true;
+        }
+    }
+
     //	Enums in Select_Game() must match order of buttons in Main_Menu().
 #ifdef FIXIT_VERSION_3
     enum
@@ -842,6 +855,13 @@ bool Select_Game(bool fade)
         }
 
         while (process) {
+
+            // If the spawner is active, skip the entire menu loop.
+            if (spawnerActive) {
+                process = false;
+                Theme.Fade_Out();
+                break;
+            }
 
             /*
             **	Redraw the title page if needed

@@ -78,6 +78,7 @@
 #include <string.h>
 
 #include "interpal.h"
+#include "spectator.h"
 #include "vortex.h"
 #include "common/framelimit.h"
 #include "common/paths.h"
@@ -4089,7 +4090,7 @@ bool Force_CD_Available(int cd)
 #endif
 
 #ifdef FRENCH
-                sprintf(buffer, "Insärez le %s", _cd_name[cd]);
+                sprintf(buffer, "Ins≈†rez le %s", _cd_name[cd]);
 #else
 #ifdef GERMAN
                 sprintf(buffer, "Bitte %s", _cd_name[cd]);
@@ -4100,7 +4101,7 @@ bool Force_CD_Available(int cd)
             } else {
 #ifdef DVD
 #ifdef FRENCH
-                sprintf(buffer, "Insärez le %s", _cd_name[4]);
+                sprintf(buffer, "Ins≈†rez le %s", _cd_name[4]);
 #else
 #ifdef GERMAN
                 sprintf(buffer, "Bitte %s", _cd_name[4]);
@@ -4374,6 +4375,11 @@ static void Do_Record_Playback(void)
         **	The map isn't drawn in playback mode, so draw it here.
         */
         Map.Render();
+
+        /*
+        **	Draw spectator overlay stats for replay viewers.
+        */
+        Spectator_Replay_Render();
     }
 }
 
@@ -4702,4 +4708,4 @@ bool Force_Scenario_Available(const char* szName)
     }
     return true;
 }
-#endif
+......................#endif
