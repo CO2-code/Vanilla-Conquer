@@ -1,4 +1,4 @@
-//
+﻿//
 // Copyright 2020 Electronic Arts Inc.
 //
 // TiberianDawn.DLL and RedAlert.dll and corresponding source code is free
@@ -77,8 +77,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "interpal.h"
-#include "spectator.h"
+#include "interpal.h"%0A#include "spectator.h"
 #include "spectator.h"
 #include "vortex.h"
 #include "common/framelimit.h"
@@ -1779,7 +1778,7 @@ bool Main_Loop()
         } else {
 #ifdef FIXIT_VERSION_3
             if (!Session.DesiredFrameRate)
-                Session.DesiredFrameRate = 60; //	A division by zero was happening (very rare)
+                Session.DesiredFrameRate = 60; //	A division by zero was happening (very rare).
 #endif
             framedelay = TIMER_SECOND / Session.DesiredFrameRate;
             FrameTimer = framedelay;
@@ -2374,7 +2373,7 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
 #else
 
 #ifdef CHEAT_KEYS
-//	Mono_Printf("Movie: %s", name);
+//	Mono_Printf("Movie: %s\n", name);
 #endif // CHEAT_KEYS
     /*
     ** Don't play movies in editor mode
@@ -2383,7 +2382,7 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
         return;
     }
 #ifdef CHEAT_KEYS
-//	Mono_Printf("A");
+//	Mono_Printf("A\n");
 #endif // CHEAT_KEYS
     /*
     ** Don't play movies in multiplayer mode
@@ -2392,7 +2391,7 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
         return;
     }
 #ifdef CHEAT_KEYS
-// Mono_Printf("b");
+// Mono_Printf("b\n");
 #endif // CHEAT_KEYS
 
     if (name) {
@@ -2406,7 +2405,7 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
 
         if (!CCFileClass(fullname).Is_Available()) {
 #ifdef CHEAT_KEYS
-//		 Mono_Printf("fullname: %s", fullname);
+//		 Mono_Printf("fullname: %s\n", fullname);
 #endif // CHEAT_KEYS
             return;
         }
@@ -3905,9 +3904,9 @@ bool Force_CD_Available(int cd)
     cd_index = Get_CD_Index(current_drive, 1 * 60);
 
 #ifdef CHEAT_KEYS
-//	Mono_Printf("Get_CD_Index just returned %d", cd_index);
-//	Mono_Printf("We are checking for %d", cd);
-//	Mono_Printf("current_drive = %d", current_drive);
+//	Mono_Printf("Get_CD_Index just returned %d\n", cd_index);
+//	Mono_Printf("We are checking for %d\n", cd);
+//	Mono_Printf("current_drive = %d\n", current_drive);
 #endif // CHEAT_KEYS
 
 #ifdef DVD // Denzil
@@ -4091,7 +4090,7 @@ bool Force_CD_Available(int cd)
 #endif
 
 #ifdef FRENCH
-                sprintf(buffer, "InsŠrez le %s", _cd_name[cd]);
+                sprintf(buffer, "InsÅ rez le %s", _cd_name[cd]);
 #else
 #ifdef GERMAN
                 sprintf(buffer, "Bitte %s", _cd_name[cd]);
@@ -4102,7 +4101,7 @@ bool Force_CD_Available(int cd)
             } else {
 #ifdef DVD
 #ifdef FRENCH
-                sprintf(buffer, "InsŠrez le %s", _cd_name[4]);
+                sprintf(buffer, "InsÅ rez le %s", _cd_name[4]);
 #else
 #ifdef GERMAN
                 sprintf(buffer, "Bitte %s", _cd_name[4]);
@@ -4701,12 +4700,12 @@ bool Force_Scenario_Available(const char* szName)
 {
     //	Calls Force_CD_Available based on type of scenario. szName is assumed to be an official scenario here.
     if (Is_Mission_Counterstrike((char*)szName)) {
-        //		debugprint( "Force_Scenario_Available requiring disk 4..." );
+        //		debugprint( "Force_Scenario_Available requiring disk 4...\n" );
         return Force_CD_Available(4);
     } else if (Is_Mission_Aftermath((char*)szName)) {
-        //		debugprint( "Force_Scenario_Available requiring disk 3..." );
+        //		debugprint( "Force_Scenario_Available requiring disk 3...\n" );
         return Force_CD_Available(3);
     }
     return true;
 }
-#endif
+......................#endif
