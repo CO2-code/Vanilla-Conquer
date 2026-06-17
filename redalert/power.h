@@ -44,9 +44,6 @@ public:
     PowerClass(NoInitClass const& x)
         : RadarClass(x)
         , FlashTimer(x){};
-    virtual ~PowerClass()
-    {
-    }
 
     /*
     ** Initialization
@@ -85,11 +82,8 @@ protected:
     enum PowerEnums
     {
         POWER_X = 10 * ICON_PIXEL_W,
-    // Can't be constant because of DOSMode. Check One_Time.
-#if 0
         POWER_Y = (7 + 70 + 13),
-        POWER_HEIGHT = (200 - (7 + 70 + 13)),
-#endif
+        
         POWER_WIDTH = 8,
         POWER_LINE_SPACE = 5,
         POWER_LINE_WIDTH = 3,
@@ -98,9 +92,6 @@ protected:
     };
 
 private:
-    static int POWER_Y;
-    static int POWER_HEIGHT;
-
     int Power_Height(int value);
 
     unsigned IsActive : 1;
@@ -111,6 +102,7 @@ private:
     */
     CDTimerClass<FrameTimerClass> FlashTimer;
 
+	int PowerBarHeight;
     int RecordedDrain;
     int RecordedPower;
     int DesiredDrainHeight;
@@ -127,6 +119,7 @@ private:
     */
     static void const* PowerShape;
     static void const* PowerBarShape;
+	static void const* PowerTileShape;
 };
 
 #endif

@@ -42,13 +42,6 @@
 
 //#pragma warn -hid
 
-#include "common/sockets.h" // Must come before windows.h include.
-
-#ifdef _WIN32
-//#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
-
 #ifdef _WIN32
 #define MONOC_H
 #endif
@@ -57,11 +50,31 @@
 
 #define WWMEM_H
 
+#include "common/wwkeyboard.h"
 #include "common/wwlib32.h"
-#include "common/winstub.h"
 #include "bench.h"
+#include "common/rect.h"
+#include "jshell.h"
+#include "buff.h"
+#include "face.h"
+#include "random.h"
+#include "crc.h"
 #include "compat.h"
 #include "fixed.h"
+#include "base64.h"
+#include "pipe.h"
+#include "xpipe.h"
+#include "ramfile.h"
+#include "lcw.h"
+#include "lcwpipe.h"
+#include "shapipe.h"
+#include "b64pipe.h"
+#include "straw.h"
+#include "xstraw.h"
+#include "b64straw.h"
+#include "lcwstraw.h"
+#include "shastraw.h"
+#include "rndstraw.h"
 
 // Should be part of WWLIB.H. This is used in JSHELL.CPP.
 typedef struct
@@ -87,9 +100,10 @@ typedef struct
 //#include <vqa32\vqafile.h>
 
 extern bool GameActive;
-extern int LParam;
+extern long LParam;
 
 #include <assert.h>
+#include "vector.h"
 #include "heap.h"
 #include "ccfile.h"
 #include "monoc.h"
@@ -99,20 +113,85 @@ extern int LParam;
 #include "defines.h"
 #include "ccini.h"
 #include "ccptr.h"
+#include "bar.h"
 
-extern int Frame;
+/*
+**	Greenleaf specific includes.
+*/
+//#include <modem.h>
+//#include <fast.h>
+
+extern long Frame;
 CELL Coord_Cell(COORDINATE coord);
 
+#include "utracker.h"
+#include "crate.h"
+#include "rules.h"
+#include "ini.h"
+#include "int.h"
+#include "pk.h"
+#include "pkpipe.h"
+#include "pkstraw.h"
+#include "sha.h"
+#include "blowfish.h"
+#include "blowpipe.h"
+#include "blwstraw.h"
+#include "language.h"
+#include "hsv.h"
+#include "rgb.h"
+#include "common/palette.h"
 #include "palettec.h" //ST 5/13/2019
+#include "version.h"
+#include "facing.h"
+#include "ftimer.h"
+#include "theme.h"
+#include "link.h"
+#include "gadget.h"
+#include "control.h"
+#include "toggle.h"
+#include "checkbox.h"
+#include "shapebtn.h"
+#include "textbtn.h"
+#include "statbtn.h"
+#include "slider.h"
 #include "dialog.h"
+#include "list.h"
+#include "drop.h"
+#include "cheklist.h"
+#include "colrlist.h"
+#include "edit.h"
+#include "gauge.h"
+#include "msgbox.h"
+#include "dial8.h"
+#include "txtlabel.h"
+#include "loaddlg.h"
+#include "super.h"
 #include "house.h"
+#include "gscreen.h"
+#include "map.h"
+#include "display.h"
+#include "radar.h"
+#include "power.h"
 #include "sidebar.h"
+#include "tab.h"
+#include "help.h"
+#include "mouse.h"
+#include "help.h"
 #include "target.h"
+#include "theme.h"
 #include "team.h" // Team objects.
 #include "warhead.h"
 #include "weapon.h"
 #include "trigtype.h"
-#include "trigger.h"  // Trigger event objects.
+#include "teamtype.h" // Team type objects.
+#include "taction.h"
+#include "tevent.h"
+#include "trigger.h" // Trigger event objects.
+#include "mapedit.h" // map editor class
+#include "abstract.h"
+#include "object.h"
+#include "mission.h"
+#include "door.h"
 #include "bullet.h"   // Bullet objects.
 #include "terrain.h"  // Terrain objects.
 #include "anim.h"     // Animation objects.
@@ -123,11 +202,33 @@ CELL Coord_Cell(COORDINATE coord);
 #include "unit.h"     // Ground unit objects.
 #include "vessel.h"   // Sea unit objects.
 #include "infantry.h" // Infantry objects.
+#include "credits.h"  // Credit counter class.
 #include "score.h"    // Scoring system class.
 #include "factory.h"  // Production manager class.
+#include "intro.h"
+#include "ending.h"
+#include "logic.h"
+#include "queue.h"
+#include "event.h"
+#include "base.h" // defines the AI's pre-built base
+#include "carry.h"
+#include "scenario.h"
+#include "msglist.h" // Multiplayer chat message system
+#include "session.h" // Multiplayer session class
+//#include "phone.h"			// Phone list manager
+#include "ipxmgr.h" // IPX connection manager
+//#include	"nullmgr.h"			// Modem connection manager
+#include "readline.h"
+#include "vortex.h"
+#include "egos.h"
+
+// Denzil 5/18/98 - Mpeg movie playback
+#ifdef MPEGMOVIE
+bool InitDDraw(void);
+bool PlayMpegMovie(const char* name);
+#endif
 
 #include "externs.h"
-#include "keyframe.h"
 
 extern int Get_CD_Drive(void);
 extern void Fatal(char const* message, ...);
@@ -141,7 +242,7 @@ extern void Fatal(char const* message, ...);
 #ifdef assert
 #undef assert
 #endif // assert
-void Assert_Failure(const char* expression, int line, const char* file);
+void Assert_Failure(char* expression, int line, char* file);
 
 #ifdef NDEBUG
 #define assert(__ignore) ((void)0)
@@ -159,6 +260,11 @@ extern void Rebuild_Interpolated_Palette(unsigned char* interpal);
 **	ADATA.CPP
 */
 char const* Anim_Name(AnimType anim);
+
+/*
+**	AIRCRAFT.CPP
+*/
+bool Building_Check(void);
 
 /*
 **	ANIM.CPP
@@ -183,6 +289,11 @@ void Speak_AI(void);
 void Stop_Speaking(void);
 void Sound_Effect(VocType voc, COORDINATE coord, int variation = 1, HousesType house = HOUSE_NONE);
 bool Is_Speaking(void);
+
+/*
+**	CDFILE.CPP
+*/
+int harderr_handler(unsigned, unsigned, unsigned*);
 
 /*
 **	COMBAT.CPP
@@ -222,7 +333,7 @@ void Play_Movie(VQType name, ThemeType theme = THEME_NONE, bool clrscrn = true, 
 bool Main_Loop(void);
 TheaterType Theater_From_Name(char const* name);
 void Main_Game(int argc, char* argv[]);
-int VQ_Call_Back(unsigned char* buffer = NULL, int frame = 0);
+long VQ_Call_Back(unsigned char* buffer = NULL, long frame = 0);
 void Call_Back(void);
 char const* Language_Name(char const* basename);
 SourceType Source_From_Name(char const* name);
@@ -283,12 +394,13 @@ void CC_Draw_Pip(const ObjectClass* object,
                  DirType rotation = DIR_N);
 
 void Go_Editor(bool flag);
+// long MixFileHandler(VQAHandle * vqa, long action, void * buffer, long nbytes);
 char* CC_Get_Shape_Filename(void const* shapeptr);
 void CC_Add_Shape_To_Global(void const* shapeptr, char* filename, char code);
 void Bubba_Print(char* format, ...);
 void Heap_Dump_Check(char* string);
 void Dump_Heap_Pointers(void);
-unsigned int Disk_Space_Available(void);
+unsigned long Disk_Space_Available(void);
 void* Hires_Load(char* name);
 void Shake_The_Screen(int shakes, HousesType house = HOUSE_NONE);
 
@@ -311,6 +423,7 @@ short const* Coord_Spillage_List(COORDINATE coord, int maxsize);
 /*
 **	DEBUG.CPP
 */
+void Log_Event(char const* text, ...);
 void Debug_Key(unsigned input);
 void Self_Regulate(void);
 
@@ -350,6 +463,10 @@ bool Expansion_AM_Present(void);
 int Optimize_Moves(PathType* path, int (*callback)(CELL, FacingType), int threshhold);
 
 /*
+**	GOPTIONS.CPP
+*/
+
+/*
 **	INI.CPP
 */
 void Write_Scenario_INI(char* root);
@@ -360,7 +477,7 @@ void Assign_Houses(void);
 /*
 **	INIBIN.CPP
 */
-unsigned int Ini_Binary_Version(void);
+unsigned long Ini_Binary_Version(void);
 bool Read_Scenario_INB(CCFileClass* file, char* root, bool fresh);
 bool Valid_Scenario_INB(CCFileClass* file);
 
@@ -373,12 +490,17 @@ bool Read_Scenario_INI_Write_INB(char* root, bool fresh);
 **	INIT.CPP
 */
 void Load_Title_Page(bool visible = false);
-unsigned Obfuscate(char const* string);
+long Obfuscate(char const* string);
 void Anim_Init(void);
 bool Init_Game(int argc, char* argv[]);
 bool Select_Game(bool fade = false);
 bool Parse_Command_Line(int argc, char* argv[]);
 void Parse_INI_File(void);
+
+/*
+** INTERPAL.CPP
+*/
+#include "common/interpal.h"
 
 /*
 ** JSHELL.CPP
@@ -391,8 +513,8 @@ int Load_Picture(char const* filename,
 void* Conquer_Build_Fading_Table(PaletteClass const& palette, void* dest, int color, int frac);
 void* Small_Icon(void const* iconptr, int iconnum);
 void Set_Window(int window, int x, int y, int w, int h);
-int Load_Uncompress(FileClass& file, BufferClass& uncomp_buff, BufferClass& dest_buff, void* reserved_data);
-int Translucent_Table_Size(int count);
+long Load_Uncompress(FileClass& file, BuffType& uncomp_buff, BuffType& dest_buff, void* reserved_data);
+long Translucent_Table_Size(int count);
 void* Build_Translucent_Table(PaletteClass const& palette, TLucentType const* control, int count, void* buffer);
 void* Conquer_Build_Translucent_Table(PaletteClass const& palette, TLucentType const* control, int count, void* buffer);
 void* Make_Fading_Table(PaletteClass const& palette, void* dest, int color, int frac);
@@ -403,6 +525,11 @@ void* Make_Fading_Table(PaletteClass const& palette, void* dest, int color, int 
 void Buffer_Frame_To_Page(int x, int y, int w, int h, void* Buffer, GraphicViewPortClass& view, int flags, ...);
 
 /*
+**	KEYFRAME.CPP
+*/
+#include "common/keyframe.h"
+
+/*
 **	MAP.CPP
 */
 int Terrain_Cost(CELL cell, FacingType facing);
@@ -411,16 +538,15 @@ int Coord_Spillage_Number(COORDINATE coord, int maxsize);
 /*
 **	MENUS.CPP
 */
-void Setup_Menu(int menu, char const* text[], unsigned int field, int index, int skip);
-int Check_Menu(int menu, char const* text[], char* selection, int field, int index);
+void Setup_Menu(int menu, char const* text[], unsigned long field, int index, int skip);
+int Check_Menu(int menu, char const* text[], char* selection, long field, int index);
 int Do_Menu(char const** strings, bool blue);
 extern int UnknownKey;
-int Main_Menu(unsigned int timeout);
+int Main_Menu(unsigned long timeout);
 
 /*
 ** MPLAYER.CPP
 */
-class ListClass;
 GameType Select_MPlayer_Game(void);
 void Clear_Listbox(ListClass* list);
 void Clear_Vector(DynamicVectorClass<NodeNameType*>* vector);
@@ -441,8 +567,8 @@ void Shutdown_Network(void);
 bool Remote_Connect(void);
 void Destroy_Connection(int id, int error);
 bool Process_Global_Packet(GlobalPacketType* packet, IPXAddressClass* address);
-unsigned int Compute_Name_CRC(char* name);
-void Net_Reconnect_Dialog(int reconn, int fresh, int oldest_index, unsigned int timeval);
+unsigned long Compute_Name_CRC(char* name);
+void Net_Reconnect_Dialog(int reconn, int fresh, int oldest_index, unsigned long timeval);
 
 /*
 ** NULLDLG.CPP
@@ -460,6 +586,15 @@ int Com_Show_Scenario_Dialog(void);
 void Smart_Printf(char* format, ...);
 void Hex_Dump_Data(char* buffer, int length);
 void itoh(int i, char* s);
+void Log_Start_Time(char* string);
+void Log_End_Time(char* string);
+void Log_Time(char* string);
+void Log_Start_Nest_Time(char* string);
+void Log_End_Nest_Time(char* string);
+
+/*
+**	OBJECT.CPP
+*/
 
 /*
 ** QUEUE.CPP
@@ -477,7 +612,11 @@ bool Queue_Mission(TargetClass whom,
 bool Queue_Options(void);
 bool Queue_Exit(void);
 void Queue_AI(void);
-void Add_CRC(unsigned int* crc, unsigned int val);
+void Add_CRC(unsigned long* crc, unsigned long val);
+
+/*
+**	RANDOM.CPP
+*/
 
 /*
 **	REINF.CPP
@@ -495,6 +634,11 @@ int Create_Air_Reinforcement(HouseClass* house,
                              TARGET tarcom,
                              TARGET navcom,
                              InfantryType passenger = INFANTRY_NONE);
+
+/*
+**	ROTBMP.CPP
+*/
+int Rotate_Bitmap(GraphicViewPortClass* srcvp, GraphicViewPortClass* destvp, int angle);
 
 /*
 **	RULES.CPP
@@ -634,6 +778,11 @@ WeaponType Weapon_From_Name(char const* name);
 ArmorType Armor_From_Name(char const* name);
 
 /*
+** Winstub.cpp
+*/
+void Load_Title_Screen(char* name, GraphicViewPortClass* video_page, unsigned char* palette, bool center = true);
+
+/*
 ** Egos.CPP
 */
 void Show_Who_Was_Responsible(void);
@@ -684,12 +833,10 @@ extern CCPtr<TerrainTypeClass> y25;
 extern CCPtr<OverlayTypeClass> y26;
 extern CCPtr<SmudgeTypeClass> y27;
 
-#ifdef REMASTER_BUILD
 /*
 ** Debug output. ST - 6/27/2019 10:00PM
 */
 void GlyphX_Debug_Print(const char* debug_text);
-#endif
 
 void Disable_Uncompressed_Shapes(void);
 void Enable_Uncompressed_Shapes(void);

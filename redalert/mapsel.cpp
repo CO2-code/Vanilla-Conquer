@@ -36,9 +36,6 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
-#include "interpal.h"
-#include "common/settings.h"
-#include "common/winasm.h"
 
 void Cycle_Call_Back_Delay(int time, PaletteClass& pal);
 extern int ControlQ;
@@ -82,6 +79,12 @@ struct point
                                 {{32, 156}, {46, 171}, {-1, -1}},
                                 {{108, 97}, {-1, -1}, {-1, -1}}}};
 
+void Interpolate_2X_Scale_And_Center(GraphicBufferClass* source, GraphicViewPortClass* dest, char const* palette_file_name) {
+	HiddenPage.Clear();
+	Interpolate_2X_Scale(source, &HiddenPage, palette_file_name);
+	HiddenPage.Blit(*dest, HIRES_ADJ_W, HIRES_ADJ_H);
+}
+
 /***********************************************************************************************
  * Map_Selection -- Starts the whole process of selecting next map to go to                    *
  *                                                                                             *
@@ -95,6 +98,7 @@ struct point
  * HISTORY:                                                                                    *
  *   07/18/1996 BWG : Created.                                                                 *
  *=============================================================================================*/
+extern int CopyType;
 extern bool StreamLowImpact;
 char const* Map_Selection(void)
 {
@@ -106,7 +110,7 @@ char const* Map_Selection(void)
 #ifdef FIXIT_ANTS
     if (AntsEnabled) {
         strcpy(scenarioname, Scen.ScenarioName);
-        char buf[12];
+        char buf[10];
         sprintf(buf, "%02d", Scen.Scenario + 1);
         memcpy(&scenarioname[3], buf, 2);
         return (scenarioname);
@@ -153,18 +157,19 @@ char const* Map_Selection(void)
 
     pseudoseenbuff->Clear();
     Animate_Frame(anim, *pseudoseenbuff, 1);
-    if (InterpolationTable) {
-        for (int x = 0; x < 256; x++)
-            memset(&InterpolationTable->PaletteInterpolationTable[x][0], x, 256);
-    }
-    Interpolate_2X_Scale(pseudoseenbuff, &SeenBuff, NULL, 1);
+    for (int x = 0; x < 256; x++)
+        memset(&PaletteInterpolationTable[x][0], x, 256);
+    CopyType = 1;
+	Interpolate_2X_Scale_And_Center(pseudoseenbuff, &SeenBuff, 0);
 
     int frame = 1;
     StreamLowImpact = true;
     Play_Sample(appear1, 255, Options.Normalize_Volume(170));
     while (frame < Get_Animation_Frame_Count(anim)) {
+        CopyType = 1;
         Animate_Frame(anim, *pseudoseenbuff, frame++);
-        Interpolate_2X_Scale(pseudoseenbuff, &SeenBuff, NULL, 1);
+		Interpolate_2X_Scale_And_Center(pseudoseenbuff, &SeenBuff, NULL);
+        CopyType = 0;
         Call_Back_Delay(2);
         switch (frame) {
         case 16:
@@ -187,7 +192,7 @@ char const* Map_Selection(void)
     Show_Mouse();
     Keyboard->Clear();
 
-    bool done = false;
+    bool done = 0;
     MouseType shape = MOUSE_NORMAL;
     while (!done) {
         /*
@@ -196,7 +201,9 @@ char const* Map_Selection(void)
         */
         if (AllSurfaces.SurfacesRestored) {
             AllSurfaces.SurfacesRestored = false;
-            Interpolate_2X_Scale(pseudoseenbuff, &SeenBuff, NULL, 1);
+            CopyType = 1;
+			Interpolate_2X_Scale_And_Center(pseudoseenbuff, &SeenBuff, NULL);
+            CopyType = 0;
         }
         Cycle_Call_Back_Delay(1, mappalette);
         int choice = Mouse_Over_Spot(house, scenario);
@@ -216,7 +223,7 @@ char const* Map_Selection(void)
         if (Keyboard->Check()) {
             if ((Keyboard->Get() & 0x10FF) == KN_LMOUSE) {
                 if (choice != -1) {
-                    done = true;
+                    done = 1;
                     selection = choice;
                     Play_Sample(country1, 255, Options.Normalize_Volume(170));
                 } else {
@@ -239,8 +246,8 @@ char const* Map_Selection(void)
     //	SeenPage.Clear();
 
     Fancy_Text_Print(TXT_STAND_BY,
-                     160 * RESFACTOR,
-                     190 * RESFACTOR,
+                     (160 * RESFACTOR) + HIRES_ADJ_W,
+                     (190 * RESFACTOR) + HIRES_ADJ_H,
                      GadgetClass::Get_Color_Scheme(),
                      TBLACK,
                      TPF_CENTER | TPF_6PT_GRAD | TPF_DROPSHADOW);
@@ -259,13 +266,12 @@ char const* Map_Selection(void)
         strcpy(scenarioname, antmission[antnum]);
     } else {
         strcpy(scenarioname, Scen.ScenarioName);
-        char buf[12];
+        char buf[10];
         sprintf(buf, "%02d", Scen.Scenario + 1);
         memcpy(&scenarioname[3], buf, 2);
         scenarioname[6] = 'A' + selection;
     }
     Theme.Fade_Out();
-    delete pseudoseenbuff;
     //	Options.Set_Score_Volume(oldvolume);
 
     //	Scen.ScenVar = (ScenarioVarType)selection;
@@ -274,12 +280,13 @@ char const* Map_Selection(void)
 #endif
 }
 
+
 int Mouse_Over_Spot(int house, int scenario)
 {
     int retval = -1;
     for (int selection = 0; selection < 3 && MapCoords[house][scenario][selection].x != -1; selection++) {
-        int mousex = Get_Mouse_X() / RESFACTOR;
-        int mousey = Get_Mouse_Y() / RESFACTOR;
+        int mousex = (Get_Mouse_X() - HIRES_ADJ_W) / RESFACTOR;
+        int mousey = (Get_Mouse_Y() - HIRES_ADJ_H ) / RESFACTOR;
         if (mousex >= MapCoords[house][scenario][selection].x && mousey >= MapCoords[house][scenario][selection].y
             && mousex <= MapCoords[house][scenario][selection].x + 11
             && mousey <= MapCoords[house][scenario][selection].y + 9) {

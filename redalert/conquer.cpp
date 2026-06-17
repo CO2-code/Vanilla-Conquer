@@ -66,33 +66,32 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
-#include "msgbox.h"
-#include "keyframe.h"
-#include "language.h"
-
-#ifdef NETWORKING
+#ifdef _WIN32
+#ifdef WINSOCK_IPX
 #include "wsproto.h"
-#endif // NETWORKING
+#else // WINSOCK_IPX
+#include "common/tcpip.h"
+#endif // WINSOCK_IPX
+#else
+#include <unistd.h>
+#include "fakesock.h"
+TcpipManagerClass Winsock;
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
-#include "interpal.h"
 #include "vortex.h"
 #include "common/framelimit.h"
-#include "common/paths.h"
 #include "common/vqatask.h"
 #include "common/vqaloader.h"
-#include "common/settings.h"
-#include "common/winasm.h"
 
-int RESFACTOR = 2;
-
-/* Dummy function for Interpolate_2X_Scale in `common` database. */
-int Get_Resolution_Factor(void)
-{
-    return RESFACTOR - 1;
-}
+#ifdef MPEGMOVIE
+#ifdef MCIMPEG
+#include "mcimovie.h"
+#endif
+#include "movie.h"
+MPG_RESPONSE far __stdcall MpegCallback(MPG_CMD cmd, LPVOID data, LPVOID user);
+#endif
 
 #define SHAPE_TRANS 0x40
 
@@ -225,8 +224,6 @@ void Main_Game(int argc, char* argv[])
             Show_Mouse();
         }
 
-        Set_Video_Cursor_Clip(true);
-
 #ifdef SCENARIO_EDITOR
         /*
         **	Scenario-editor version of main-loop processing
@@ -247,7 +244,12 @@ void Main_Game(int argc, char* argv[])
                 }
 
                 if (SpecialDialog != SDLG_NONE) {
-                    Set_Video_Cursor_Clip(false);
+                    /*
+                    **  Always release mouse cursor when a dialog is open.
+                    */
+                    if (!Is_Video_Fullscreen()) {
+                        WWMouse->Clear_Cursor_Clip();
+                    }
 
                     switch (SpecialDialog) {
                     case SDLG_SPECIAL:
@@ -280,7 +282,9 @@ void Main_Game(int argc, char* argv[])
                         break;
                     }
 
-                    Set_Video_Cursor_Clip(true);
+                    if (!Is_Video_Fullscreen()) {
+                        WWMouse->Set_Cursor_Clip();
+                    }
                 }
             } else {
 
@@ -316,7 +320,12 @@ void Main_Game(int argc, char* argv[])
             **	Main_Loop(), allowing the game to run in the background.
             */
             if (SpecialDialog != SDLG_NONE) {
-                Set_Video_Cursor_Clip(false);
+                /*
+                **  Always release mouse cursor when a dialog is open.
+                */
+                if (!Is_Video_Fullscreen()) {
+                    WWMouse->Clear_Cursor_Clip();
+                }
 
                 switch (SpecialDialog) {
                 case SDLG_SPECIAL:
@@ -371,12 +380,12 @@ void Main_Game(int argc, char* argv[])
                     break;
                 }
 
-                Set_Video_Cursor_Clip(true);
+                if (!Is_Video_Fullscreen()) {
+                    WWMouse->Set_Cursor_Clip();
+                }
             }
         }
 #endif
-
-        Set_Video_Cursor_Clip(false);
 
         /*
         **	Scenario is done; fade palette to black
@@ -674,12 +683,18 @@ void Keyboard_Process(KeyNumType& input)
         input = KN_NONE;
     }
 
+#ifdef TOFIX
+    /*
+    ** For multiplayer, 'R' pops up the surrender dialog.
+    */
     if (input != 0 && input == Options.KeyResign) {
-        if (!PlayerPtr->IsDefeated) {
+        if (!PlayerLoses && /*Session.Type != GAME_NORMAL &&*/ !PlayerPtr->IsDefeated) {
             SpecialDialog = SDLG_SURRENDER;
+            input = KN_NONE;
         }
         input = KN_NONE;
     }
+#endif
 
     /*
     **	Handle making and breaking alliances.
@@ -731,8 +746,7 @@ void Keyboard_Process(KeyNumType& input)
     /*
     **	Scrolls the sidebar up one slot.
     */
-    if (key != 0
-        && (key == Options.KeySidebarUp || (Settings.Options.MouseWheelScrolling && key == KN_MOUSEWHEEL_UP))) {
+    if (key != 0 && key == Options.KeySidebarUp) {
         Map.SidebarClass::Scroll(true, -1);
         input = KN_NONE;
     }
@@ -740,8 +754,7 @@ void Keyboard_Process(KeyNumType& input)
     /*
     **	Scrolls the sidebar down one slot.
     */
-    if (key != 0
-        && (key == Options.KeySidebarDown || (Settings.Options.MouseWheelScrolling && key == KN_MOUSEWHEEL_DOWN))) {
+    if (key != 0 && key == Options.KeySidebarDown) {
         Map.SidebarClass::Scroll(false, -1);
         input = KN_NONE;
     }
@@ -856,8 +869,8 @@ void Toggle_Formation(void)
 // MBL 03.23.2020: this has been copied to DLLExportClass::Team_Units_Formation_Toggle_On(), and modified as needed
 #ifndef REMASTER_BUILD
     int team = -1;
-    int minx = 0x7FFFFFFF, miny = 0x7FFFFFFF;
-    int maxx = 0, maxy = 0;
+    long minx = 0x7FFFFFFFL, miny = 0x7FFFFFFFL;
+    long maxx = 0, maxy = 0;
     int index;
     bool setform = 0;
 
@@ -881,7 +894,7 @@ void Toggle_Formation(void)
             team = obj->Group;
             if (team != -1) {
                 TeamFormDataStruct& team_form_data = TeamFormData[obj->Owner()];
-                setform = obj->XFormOffset == INVALID_FORMATION;
+                setform = obj->XFormOffset == (int)0x80000000;
                 team_form_data.TeamSpeed[team] = SPEED_WHEEL;
                 team_form_data.TeamMaxSpeed[team] = MPH_LIGHT_SPEED;
                 break;
@@ -895,7 +908,7 @@ void Toggle_Formation(void)
                 team = obj->Group;
                 if (team != -1) {
                     TeamFormDataStruct& team_form_data = TeamFormData[obj->Owner()];
-                    setform = obj->XFormOffset == INVALID_FORMATION;
+                    setform = obj->XFormOffset == (int)0x80000000;
                     team_form_data.TeamSpeed[team] = SPEED_WHEEL;
                     team_form_data.TeamMaxSpeed[team] = MPH_LIGHT_SPEED;
                     break;
@@ -911,7 +924,7 @@ void Toggle_Formation(void)
                 team = obj->Group;
                 if (team != -1) {
                     TeamFormDataStruct& team_form_data = TeamFormData[obj->Owner()];
-                    setform = obj->XFormOffset == INVALID_FORMATION;
+                    setform = obj->XFormOffset == 0x80000000UL;
                     team_form_data.TeamSpeed[team] = SPEED_WHEEL;
                     team_form_data.TeamMaxSpeed[team] = MPH_LIGHT_SPEED;
                     break;
@@ -931,8 +944,8 @@ void Toggle_Formation(void)
             obj->Mark(MARK_CHANGE);
             if (setform) {
                 TeamFormDataStruct& team_form_data = TeamFormData[obj->Owner()];
-                int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
                 if (xc < minx)
                     minx = xc;
                 if (xc > maxx)
@@ -946,7 +959,7 @@ void Toggle_Formation(void)
                     team_form_data.TeamSpeed[team] = obj->Class->Speed;
                 }
             } else {
-                obj->XFormOffset = obj->YFormOffset = INVALID_FORMATION;
+                obj->XFormOffset = obj->YFormOffset = (int)0x80000000;
             }
         }
     }
@@ -957,8 +970,8 @@ void Toggle_Formation(void)
             obj->Mark(MARK_CHANGE);
             if (setform) {
                 TeamFormDataStruct& team_form_data = TeamFormData[obj->Owner()];
-                int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
                 if (xc < minx)
                     minx = xc;
                 if (xc > maxx)
@@ -971,7 +984,7 @@ void Toggle_Formation(void)
                     team_form_data.TeamMaxSpeed[team] = obj->Class->MaxSpeed;
                 }
             } else {
-                obj->XFormOffset = obj->YFormOffset = INVALID_FORMATION;
+                obj->XFormOffset = obj->YFormOffset = (int)0x80000000;
             }
         }
     }
@@ -982,8 +995,8 @@ void Toggle_Formation(void)
             obj->Mark(MARK_CHANGE);
             if (setform) {
                 TeamFormDataStruct& team_form_data = TeamFormData[obj->Owner()];
-                int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
                 if (xc < minx)
                     minx = xc;
                 if (xc > maxx)
@@ -996,7 +1009,7 @@ void Toggle_Formation(void)
                     team_form_data.TeamMaxSpeed[team] = obj->Class->MaxSpeed;
                 }
             } else {
-                obj->XFormOffset = obj->YFormOffset = INVALID_FORMATION;
+                obj->XFormOffset = obj->YFormOffset = 0x80000000UL;
             }
         }
     }
@@ -1013,8 +1026,8 @@ void Toggle_Formation(void)
         for (index = 0; index < Units.Count(); index++) {
             UnitClass* obj = Units.Ptr(index);
             if (obj && !obj->IsInLimbo && obj->House == PlayerPtr && obj->Group == team) {
-                int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
 
                 obj->XFormOffset = xc - centerx;
                 obj->YFormOffset = yc - centery;
@@ -1024,8 +1037,8 @@ void Toggle_Formation(void)
         for (index = 0; index < Infantry.Count(); index++) {
             InfantryClass* obj = Infantry.Ptr(index);
             if (obj && !obj->IsInLimbo && obj->House == PlayerPtr && obj->Group == team) {
-                int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
 
                 obj->XFormOffset = xc - centerx;
                 obj->YFormOffset = yc - centery;
@@ -1035,8 +1048,8 @@ void Toggle_Formation(void)
         for (index = 0; index < Vessels.Count(); index++) {
             VesselClass* obj = Vessels.Ptr(index);
             if (obj && !obj->IsInLimbo && obj->House == PlayerPtr && obj->Group == team) {
-                int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
 
                 obj->XFormOffset = xc - centerx;
                 obj->YFormOffset = yc - centery;
@@ -1099,7 +1112,6 @@ static void Message_Input(KeyNumType& input)
                 Map.Flag_To_Redraw(false);
             }
         } else if ((Session.Type == GAME_IPX || Session.Type == GAME_INTERNET) && !Session.Messages.Is_Edit()) {
-#ifdef NETWORKING
             /*
             **	For a network game:
             **	F1-F7 = "To <name> (house):" (only allowed if we're not in ObiWan mode)
@@ -1125,7 +1137,6 @@ static void Message_Input(KeyNumType& input)
 
                 Map.Flag_To_Redraw(false);
             }
-#endif
         }
     }
 
@@ -1161,13 +1172,40 @@ static void Message_Input(KeyNumType& input)
     **	Send a message
     */
     if ((rc == 3 || rc == 4) && Session.Type != GAME_NORMAL && Session.Type != GAME_SKIRMISH) {
-#ifdef NETWORKING
+#if (0)
         /*
         **	Serial game: fill in a SerialPacketType & send it.
         **	(Note: The size of the SerialPacketType.Command must be the same as
         **	the EventClass.Type!)
         */
-        if (Session.Type == GAME_IPX || Session.Type == GAME_INTERNET) {
+        if (Session.Type == GAME_NULL_MODEM || Session.Type == GAME_MODEM) {
+            serial_packet = (SerialPacketType*)NullModem.BuildBuf;
+
+            serial_packet->Command = SERIAL_MESSAGE;
+            strcpy(serial_packet->Name, Session.Players[0]->Name);
+            serial_packet->ID = Session.ColorIdx;
+
+            if (rc == 3) {
+                strcpy(serial_packet->Message.Message, Session.Messages.Get_Edit_Buf());
+            } else {
+                strcpy(serial_packet->Message.Message, Session.Messages.Get_Overflow_Buf());
+                Session.Messages.Clear_Overflow_Buf();
+            }
+
+            /*
+            ** Send the message, and store this message in our LastMessage
+            ** buffer; the computer may send us a version of it later.
+            */
+            NullModem.Send_Message(NullModem.BuildBuf, sizeof(SerialPacketType), 1);
+
+#ifdef FIXIT_CSII //	checked - ajw 9/28/98
+            char* ptr = &serial_packet->Message.Message[0];
+            if (!strncmp(ptr, "SECRET UNITS ON ", 15) && NewUnitsEnabled) {
+                Enable_Secret_Units();
+            }
+#endif
+            strcpy(Session.LastMessage, serial_packet->Message.Message);
+        } else if (Session.Type == GAME_IPX || Session.Type == GAME_INTERNET) {
 #ifdef WOLAPI_INTEGRATION
             NetNumType blip;
             NetNodeType blop;
@@ -1211,7 +1249,7 @@ static void Message_Input(KeyNumType& input)
                         Enable_Secret_Units();
                     }
 #endif
-                    for (int i = 0; i < Ipx.Num_Connections(); i++) {
+                    for (i = 0; i < Ipx.Num_Connections(); i++) {
                         Ipx.Send_Global_Message(&Session.GPacket,
                                                 sizeof(GlobalPacketType),
                                                 1,
@@ -1382,7 +1420,7 @@ void Call_Back(void)
 
 void IPX_Call_Back(void)
 {
-#ifdef NETWORKING // PG
+#if (0) // PG
     Ipx.Service();
 
     /*
@@ -1654,11 +1692,6 @@ FacingType KN_To_Facing(int input)
 static void Sync_Delay(void)
 {
     /*
-    ** Slow down with frame limiter first.
-    */
-    Frame_Limiter();
-
-    /*
     **	Accumulate the number of 'spare' ticks that are frittered away here.
     */
     SpareTicks += FrameTimer;
@@ -1682,7 +1715,7 @@ static void Sync_Delay(void)
             Map.Render();
         }
 
-        Frame_Limiter(FL_NONE);
+        Frame_Limiter();
     }
     Color_Cycle();
     Call_Back();
@@ -1870,9 +1903,7 @@ bool Main_Loop()
         PlayerWins = false;
         PlayerRestarts = false;
         Map.Help_Text(TXT_NONE);
-        Set_Video_Cursor_Clip(false);
         Do_Win();
-        Set_Video_Cursor_Clip(true);
         return (!GameActive);
     }
     if (PlayerLoses) {
@@ -1881,9 +1912,7 @@ bool Main_Loop()
         PlayerLoses = false;
         PlayerRestarts = false;
         Map.Help_Text(TXT_NONE);
-        Set_Video_Cursor_Clip(false);
         Do_Lose();
-        Set_Video_Cursor_Clip(true);
         return (!GameActive);
     }
     if (PlayerRestarts) {
@@ -1892,9 +1921,7 @@ bool Main_Loop()
         PlayerLoses = false;
         PlayerRestarts = false;
         Map.Help_Text(TXT_NONE);
-        Set_Video_Cursor_Clip(false);
         Do_Restart();
-        Set_Video_Cursor_Clip(true);
         return (!GameActive);
     }
 
@@ -1904,9 +1931,7 @@ bool Main_Loop()
         //	End game in a draw.
         WWMouse->Erase_Mouse(&HidPage, true);
         Map.Help_Text(TXT_NONE);
-        Set_Video_Cursor_Clip(false);
         Do_Draw();
-        Set_Video_Cursor_Clip(true);
         return (!GameActive);
     }
 #endif
@@ -2127,10 +2152,10 @@ void Go_Editor(bool flag)
  * HISTORY:                                                                                    *
  *   07/04/1995 JLB : Created.                                                                 *
  *=============================================================================================*/
-int MixFileHandler(VQAHandle* vqa, int action, void* buffer, int nbytes)
+long MixFileHandler(VQAHandle* vqa, long action, void* buffer, long nbytes)
 {
     CCFileClass* file;
-    int error;
+    long error;
 
     file = (CCFileClass*)vqa->VQAio;
 
@@ -2262,11 +2287,6 @@ int Load_Interpolated_Palettes(char const* filename, bool add)
     int i;
     int start_palette;
 
-    if (!InterpolationTable) {
-        /* DOSMode should not interpolate anything. Don't allocate memory.  */
-        return 0;
-    }
-
     PalettesRead = false;
     CCFileClass file(filename);
 
@@ -2294,7 +2314,6 @@ int Load_Interpolated_Palettes(char const* filename, bool add)
 
         file.Open(READ);
         file.Read(&num_palettes, 4);
-        num_palettes = le32toh(num_palettes);
 
         for (i = 0; i < num_palettes; i++) {
             InterpolatedPalettes[i + start_palette] = (unsigned char*)malloc(65536);
@@ -2315,11 +2334,6 @@ int Load_Interpolated_Palettes(char const* filename, bool add)
 
 void Free_Interpolated_Palettes(void)
 {
-    if (!InterpolationTable) {
-        /* DOSMode should not interpolate anything.  */
-        return;
-    }
-
     for (int i = 0; i < ARRAY_SIZE(InterpolatedPalettes); i++) {
         if (InterpolatedPalettes[i]) {
             free(InterpolatedPalettes[i]);
@@ -2367,6 +2381,14 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
     Play_Movie_GlyphX(name, theme, immediate);
     return;
 #else
+#ifdef MPEGMOVIE
+    // theme = theme;
+    // clrscrn = clrscrn;
+    if (Using_DVD()) {
+        if (PlayMpegMovie(name))
+            return;
+    }
+#endif
 
 #ifdef CHEAT_KEYS
 //	Mono_Printf("Movie: %s\n", name);
@@ -2522,13 +2544,168 @@ void Play_Movie(char const* name, ThemeType theme, bool clrscrn, bool immediate)
 void Play_Movie(VQType name, ThemeType theme, bool clrscrn, bool immediate)
 {
     if (name != VQ_NONE) {
-        if (name == VQ_REDINTRO && RESFACTOR != 1) {
+        if (name == VQ_REDINTRO) {
             IsVQ640 = true;
         }
         Play_Movie(VQName[name], theme, clrscrn, immediate);
         IsVQ640 = false;
     }
 }
+
+// Denzil 5/18/98 - Mpeg movie playback
+#ifdef MPEGMOVIE
+extern LPDIRECTDRAWPALETTE PalettePtr;
+
+bool PlayMpegMovie(const char* name)
+{
+    char path[MAX_PATH];
+    CCFileClass file;
+    const char* filename;
+
+#ifdef CHEAT_KEYS
+    if (bNoMovies)
+        return true;
+#endif
+
+    sprintf(path, "movies\\%.8s.%.3s", name, "mpg");
+    filename = file.Set_Name(path);
+
+    if (!file.Is_Available()) {
+#if (1)
+        VisiblePage.Clear();
+        GamePalette.Set();
+        Show_Mouse();
+        sprintf(path, "Couldn't find %s\n", filename);
+        WWMessageBox().Process(path);
+#endif
+        return false;
+    }
+
+    // Stop theme music
+    if (Misc_Focus_Loss_Function)
+        Misc_Focus_Loss_Function();
+
+    // Release primary surface
+    VisiblePage.Un_Init();
+
+#ifdef MCIMPEG
+    if (MciMovie && MpgSettings && (MpgSettings->GetDeviceName() != NULL)) {
+        DirectDrawObject->SetCooperativeLevel(MainWindow, DDSCL_NORMAL);
+
+        if (!MciMovie->Open(filename, MpgSettings->GetDeviceName())) {
+            WWMessageBox().Process("Couldn't open movie.\n");
+        } else if (!MciMovie->Play(MainWindow)) {
+            WWMessageBox().Process("Couldn't play movie.\n");
+        }
+
+        DirectDrawObject->SetCooperativeLevel(MainWindow, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN);
+    } else
+#endif
+    {
+        DDSURFACEDESC ddsd;
+        IDirectDrawSurface* primary = NULL;
+        bool modeChange = false;
+        RECT rect;
+
+        if (FAILED(DirectDrawObject->SetDisplayMode(ScreenWidth, ScreenHeight, 16))) {
+            WWMessageBox().Process("Couldn't change display mode.\n");
+        } else {
+            // Create primary surface reference
+            memset(&ddsd, 0, sizeof(ddsd));
+            ddsd.dwSize = sizeof(ddsd);
+            ddsd.dwFlags = DDSD_CAPS;
+            ddsd.ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE;
+
+            if (FAILED(DirectDrawObject->CreateSurface(&ddsd, &primary, NULL))) {
+                WWMessageBox().Process("Couldn't create primary movie surface.\n");
+            } else {
+                rect.top = rect.left = 0;
+                rect.bottom = ScreenHeight;
+                rect.right = ScreenWidth;
+
+                MpgSetCallback(MpegCallback, NULL);
+                MpgPlay(filename, DirectDrawObject, primary, &rect);
+
+                if (primary)
+                    primary->Release();
+            }
+
+            DirectDrawObject->SetDisplayMode(ScreenWidth, ScreenHeight, 8);
+        }
+    }
+
+    // Restore surfaces
+    VisiblePage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)(GBC_VISIBLE | GBC_VIDEOMEM));
+    PaletteSurface->SetPalette(PalettePtr);
+    AllSurfaces.Set_Surface_Focus(true);
+    AllSurfaces.Restore_Surfaces();
+    return true;
+}
+
+MPG_RESPONSE far __stdcall MpegCallback(MPG_CMD cmd, LPVOID data, LPVOID user)
+{
+    static IDirectDrawPalette* _palette = NULL;
+
+    user = user;
+
+    switch (cmd) {
+    case MPGCMD_ERROR:
+        WWMessageBox().Process((char const*)data);
+        break;
+
+    case MPGCMD_INIT:
+        VisiblePage.Clear();
+        break;
+
+    case MPGCMD_CLEANUP:
+        VisiblePage.Clear();
+
+        if (_palette != NULL) {
+            PaletteSurface->SetPalette(_palette);
+            _palette->Release();
+            _palette = NULL;
+        }
+        break;
+
+    case MPGCMD_PALETTE:
+        if (FAILED(PaletteSurface->GetPalette(&_palette))) {
+            WWMessageBox().Process("Couldn't get primary palette.\n");
+        } else {
+            if (FAILED(PaletteSurface->SetPalette((IDirectDrawPalette*)data))) {
+                WWMessageBox().Process("Couldn't set movie palette.\n");
+            }
+        }
+        break;
+
+    case MPGCMD_UPDATE:
+        if ((BreakoutAllowed || Debug_Flag) && Keyboard->Check()) {
+            if (Keyboard->Get() == KN_ESC) {
+                Keyboard->Clear();
+                return MPGRES_QUIT;
+            }
+
+            Keyboard->Clear();
+        }
+
+        if (!GameInFocus) {
+            MpgPause();
+
+            while (!GameInFocus) {
+                Check_For_Focus_Loss();
+            }
+
+            MpgResume();
+            return MPGRES_LOSTFOCUS;
+        }
+        break;
+
+    default:
+        break;
+    }
+
+    return MPGRES_CONTINUE;
+}
+#endif
 
 /***********************************************************************************************
  * Unselect_All -- Causes all selected objects to become unselected.                           *
@@ -2968,7 +3145,7 @@ void CC_Draw_Shape(void const* shapefile,
 
             predoffset = Frame;
 
-            if (x > WindowList[window][WINDOWWIDTH] >> 1) {
+            if (x > WindowList[window][WINDOWWIDTH]) {
                 predoffset = -predoffset;
             }
 
@@ -3183,7 +3360,7 @@ void Check_VQ_Palette_Set(void);
 
 extern GraphicBufferClass VQ640;
 extern bool IsVQ640;
-int VQ_Call_Back(unsigned char*, int)
+long VQ_Call_Back(unsigned char*, long)
 {
 #ifdef REMASTER_BUILD
     return 0;
@@ -3196,9 +3373,11 @@ int VQ_Call_Back(unsigned char*, int)
     Check_VQ_Palette_Set();
 #ifdef MOVIE640
     if (IsVQ640) {
-        VQ640.Blit(SeenBuff);
+        VQ640.Blit(SeenBuff, HIRES_ADJ_W, HIRES_ADJ_H);
     } else {
-        Interpolate_2X_Scale(&SysMemPage, &SeenBuff, NULL, Settings.Video.InterpolationMode);
+        Interpolate_2X_Scale(&SysMemPage, &HiddenPage, NULL);
+		//SeenBuff.Blit(HiddenPage);
+		HiddenPage.Blit(SeenBuff, HIRES_ADJ_W, HIRES_ADJ_H);
     }
 #else
     Interpolate_2X_Scale(&SysMemPage, &SeenBuff, NULL);
@@ -3369,8 +3548,8 @@ void Handle_Team(int team, int action)
     **	Create the team.
     */
     case 2: {
-        int minx = 0x7FFFFFFF, miny = 0x7FFFFFFF;
-        int maxx = 0, maxy = 0;
+        long minx = 0x7FFFFFFFL, miny = 0x7FFFFFFFL;
+        long maxx = 0, maxy = 0;
         team_form_data.TeamSpeed[team] = SPEED_WHEEL;
         team_form_data.TeamMaxSpeed[team] = MPH_LIGHT_SPEED;
         for (index = 0; index < Units.Count(); index++) {
@@ -3381,8 +3560,8 @@ void Handle_Team(int team, int action)
                 if (obj->Is_Selected_By_Player()) {
                     obj->Group = team;
                     obj->Mark(MARK_CHANGE);
-                    int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                    int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                    long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                    long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
                     if (xc < minx)
                         minx = xc;
                     if (xc > maxx)
@@ -3407,8 +3586,8 @@ void Handle_Team(int team, int action)
                 if (obj->Is_Selected_By_Player()) {
                     obj->Group = team;
                     obj->Mark(MARK_CHANGE);
-                    int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                    int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                    long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                    long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
                     if (xc < minx)
                         minx = xc;
                     if (xc > maxx)
@@ -3433,8 +3612,8 @@ void Handle_Team(int team, int action)
                 if (obj->Is_Selected_By_Player()) {
                     obj->Group = team;
                     obj->Mark(MARK_CHANGE);
-                    int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                    int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                    long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                    long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
                     if (xc < minx)
                         minx = xc;
                     if (xc > maxx)
@@ -3474,12 +3653,12 @@ void Handle_Team(int team, int action)
                 ** offsets, and they'll be formationed.
                 */
 #if (1)
-                obj->XFormOffset = obj->YFormOffset = INVALID_FORMATION;
+                obj->XFormOffset = obj->YFormOffset = (int)0x80000000;
 #else
 #if (1)
                 // Old always-north formation stuff
-                int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
 
                 obj->XFormOffset = xc - centerx;
                 obj->YFormOffset = yc - centery;
@@ -3501,12 +3680,12 @@ void Handle_Team(int team, int action)
                     obj->Group = team;
                 if (obj->Group == team && obj->Is_Selected_By_Player()) {
 #if (1)
-                    obj->XFormOffset = obj->YFormOffset = INVALID_FORMATION;
+                    obj->XFormOffset = obj->YFormOffset = (int)0x80000000;
 #else
 #if (1)
                     // Old always-north formation stuff
-                    int xc = Cell_X(Coord_Cell(obj->Center_Coord()));
-                    int yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
+                    long xc = Cell_X(Coord_Cell(obj->Center_Coord()));
+                    long yc = Cell_Y(Coord_Cell(obj->Center_Coord()));
 
                     obj->XFormOffset = xc - centerx;
                     obj->YFormOffset = yc - centery;
@@ -3567,6 +3746,113 @@ void Handle_View(int view, int action)
 #ifndef ROR_NOT_READY
 #define ROR_NOT_READY 21
 #endif
+
+static char* _CD_Volume_Label[] = {
+    "CD1",
+    "CD2",
+    "CD3",
+    "CD4",
+// Denzil 4/15/98
+#ifdef DVD
+    "CD1", //	ajw - Pushes RADVD to position 5, to match enum in Force_CD_Available(). 4 will never be returned here.
+    "RADVD",
+#endif
+};
+static int _Num_Volumes = ARRAY_SIZE(_CD_Volume_Label);
+
+/***********************************************************************************************
+ * Get_CD_Index -- returns the volume type of the CD in the given drive                        *
+ *                                                                                             *
+ *                                                                                             *
+ *                                                                                             *
+ * INPUT:    drive number                                                                      *
+ *           timeout                                                                           *
+ *                                                                                             *
+ * OUTPUT:   0 = gdi                                                                           *
+ *           1 = nod                                                                           *
+ *           2 = covert or CS                                                                       *
+ *           3 = Aftermath
+ *           5 = DVD
+ *          -1 = non C&C                                                                       *
+ *                                                                                             *
+ * WARNINGS: None                                                                              *
+ *                                                                                             *
+ * HISTORY:                                                                                    *
+ *    5/21/96 5:27PM ST : Created                                                              *
+ *    01/20/97 V.Grippi added CS support											       *
+ *=============================================================================================*/
+int Get_CD_Index(int cd_drive, int timeout)
+{
+#ifdef _WIN32
+    char volume_name[128];
+    char buffer[128];
+    unsigned filename_length;
+    unsigned misc_dword;
+    int count = 0;
+
+    CountDownTimerClass timer;
+
+    timer.Set(timeout);
+
+    /*
+    ** Get the volume label. If we get a 'not ready' error then retry for the timeout
+    ** period.
+    */
+    for (;;) {
+        sprintf(buffer, "%c:\\", 'A' + cd_drive);
+
+        if (GetVolumeInformationA((char const*)buffer,
+                                  &volume_name[0],
+                                  (unsigned long)sizeof(volume_name),
+                                  (unsigned long*)NULL,
+                                  (unsigned long*)&filename_length,
+                                  (unsigned long*)&misc_dword,
+                                  (char*)NULL,
+                                  (unsigned long)0)) {
+            /*
+            ** Try opening 'main.mix' to verify that the CD is really there and is what
+            ** it says it is.
+            */
+            sprintf(buffer, "%c:\\main.mix", 'A' + cd_drive);
+
+            HANDLE handle =
+                CreateFileA(buffer, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+            if (handle != INVALID_HANDLE_VALUE) {
+                CloseHandle(handle);
+
+                /*
+                ** Match the volume label to the list of known C&C volume labels.
+                */
+                for (int i = 0; i < _Num_Volumes; i++) {
+                    if (!stricmp(_CD_Volume_Label[i], volume_name))
+                        return (i);
+                }
+            } else {
+                if (!count)
+                    count++;
+                else
+                    return -1;
+            }
+        } else {
+            /*
+            ** Failed to get the volume label on a known CD drive.
+            ** If this is a CD changer it may require time to swap the disks so dont return
+            ** immediately if the error is ROR_NOT_READY
+            */
+            if (!timer.Time())
+                return -1;
+
+            int val = GetLastError();
+
+            if (val != ROR_NOT_READY)
+                return -1;
+        }
+    }
+#else
+    return -1;
+#endif
+}
 
 /***********************************************************************************************
  * Force_CD_Available -- Ensures that specified CD is available.                               *
@@ -3664,12 +3950,8 @@ typedef enum
 
 static void Reinit_Secondary_Mixfiles()
 {
-    static bool in_progress = false;
-
     // Only reinitialised if the main mix file has been initialised once already.
-    if (MainMix != nullptr && !in_progress) {
-        in_progress = true;
-
+    if (MainMix != nullptr) {
         delete MoviesMix;
         delete Movies2Mix;
         delete GeneralMix;
@@ -3691,8 +3973,6 @@ static void Reinit_Secondary_Mixfiles()
         }
         GeneralMix = new MFCD("GENERAL.MIX", &FastKey);
         ScoreMix = new MFCD("SCORES.MIX", &FastKey);
-
-        in_progress = false;
     }
 }
 
@@ -3706,27 +3986,22 @@ static bool Change_Local_Dir(int cd)
     static bool _initialised = false;
     static unsigned _detected = 0;
     static const char* _vol_labels[CD_COUNT] = {"allied", "soviet", "counterstrike", "aftermath", "."};
-    std::string paths[3] = {Paths.User_Path(), Paths.Data_Path(), Paths.Program_Path()};
+    char vol_buff[16];
 
     // Detect which if any of the discs have had their data copied to an appropriate local folder.
     if (!_initialised) {
         for (int i = 0; i < CD_COUNT; ++i) {
-            for (int j = 0; j < 3; ++j) {
-                std::string path = Paths.Concatenate_Paths(paths[j].c_str(), _vol_labels[i]);
-                RawFileClass vol(path.c_str());
+            RawFileClass vol(_vol_labels[i]);
 
-                if (vol.Is_Directory()) {
-                    CDFileClass::Refresh_Search_Drives();
-                    path += PathsClass::SEP;
-                    CDFileClass::Add_Search_Drive(path.c_str());
-                    CCFileClass fc("MAIN.MIX");
+            if (vol.Is_Directory()) {
+                CDFileClass::Refresh_Search_Drives();
+                snprintf(vol_buff, sizeof(vol_buff), "%s/", _vol_labels[i]);
+                CDFileClass::Add_Search_Drive(vol_buff);
+                CCFileClass fc("MAIN.MIX");
 
-                    // Populate _detected as a bitfield for which discs we found a local copy of.
-                    if (fc.Is_Available()) {
-                        _detected |= 1 << i;
-                    }
-
-                    break;
+                // Populate _detected as a bitfield for which discs we found a local copy of.
+                if (fc.Is_Available()) {
+                    _detected |= 1 << i;
                 }
             }
         }
@@ -3778,26 +4053,22 @@ static bool Change_Local_Dir(int cd)
 
     // If the data from the CD we want was detected, then double check it and set it as though we used the -CD command line.
     if (_detected & (1 << cd)) {
-        for (int j = 0; j < 3; ++j) {
-            std::string path = Paths.Concatenate_Paths(paths[j].c_str(), _vol_labels[cd]);
-            RawFileClass vol(path.c_str());
+        RawFileClass vol(_vol_labels[cd]);
 
-            if (vol.Is_Directory()) {
-                CDFileClass::Refresh_Search_Drives();
-                path += PathsClass::SEP;
-                CDFileClass::Add_Search_Drive(path.c_str());
+        // Verify that the file is still available and hasn't been deleted out from under us.
+        if (vol.Is_Directory()) {
+            CDFileClass::Refresh_Search_Drives();
+            snprintf(vol_buff, sizeof(vol_buff), "%s/", _vol_labels[cd]);
+            CDFileClass::Add_Search_Drive(vol_buff);
 
-                // The file should be available if we reached this point.
-                assert(CCFileClass("MAIN.MIX").Is_Available());
+            // The file should be available if we reached this point.
+            assert(CCFileClass("MAIN.MIX").Is_Available());
 
-                CurrentCD = cd;
-                LastCD = cd;
-                Theme.Stop();
-                Reinit_Secondary_Mixfiles();
-                ThemeClass::Scan();
+            CurrentCD = cd;
+            LastCD = cd;
+            Reinit_Secondary_Mixfiles();
 
-                return true;
-            }
+            return true;
         }
     }
 
@@ -3806,6 +4077,41 @@ static bool Change_Local_Dir(int cd)
 
 bool Force_CD_Available(int cd_desired) //	ajw
 {
+    static void* font;
+#ifdef FRENCH
+    static char* _cd_name[] = {
+        "ALERTE ROUGE CD1",
+        "ALERTE ROUGE CD2",
+        "CD Missions Taiga",
+        "CD Missions M.A.D.",
+        "ALERTE ROUGE DVD",
+    };
+#endif
+#ifdef GERMAN
+    static char* _cd_name[] = {
+        "ALARMSTUFE ROT CD1",
+        "ALARMSTUFE ROT CD2",
+        "CD Gegenangriff einlegen",
+        "CD TRANS einlegen",
+        "ALARMSTUFE ROT DVD",
+    };
+#endif
+#ifdef ENGLISH
+    static char* _cd_name[] = {
+        "RED ALERT DISK 1",
+        "RED ALERT DISK 2",
+        "CounterStrike CD",
+        "Aftermath CD",
+        "RED ALERT DVD",
+    };
+#endif
+
+    int new_cd_drive = 0;
+    int cd_current;
+    int current_drive;
+
+    ThemeType theme_playing = THEME_NONE;
+
     /*
     ** If the required CD is set to -2 then it means that the file is present
     ** on the local hard drive and we shouldn't have to worry about it.
@@ -3821,7 +4127,226 @@ bool Force_CD_Available(int cd_desired) //	ajw
         return (true);
     }
 
-    return (false);
+    /*
+    ** Find out if the CD in the current drive is the one we are looking for
+    */
+    current_drive = CCFileClass::Get_CD_Drive();
+    cd_current = Get_CD_Index(current_drive, 1 * 60);
+
+    //	debugprint("Get_CD_Index just returned %d\n", cd_current);
+    //	debugprint("We are checking for %d\n", cd_desired);
+    //	debugprint("current_drive = %d\n", current_drive);
+
+    if (cd_current >= 0) {
+        if (cd_desired == CD_CS_OR_AM) {
+            // If the current cd is CS or AM then change request to whatever
+            // is present.
+            if (cd_current == CD_COUNTERSTRIKE || cd_current == CD_AFTERMATH)
+                cd_desired = cd_current;
+        }
+        // If the current CD is requested or any CD will work
+        if (cd_desired == cd_current || cd_desired == CD_ANY) {
+            /*
+            ** The required CD is still in the CD drive we used last time
+            */
+            new_cd_drive = current_drive;
+        }
+    }
+
+    /*
+    ** Flag that we will have to restart the theme
+    */
+    theme_playing = Theme.What_Is_Playing();
+    Theme.Stop();
+
+    // Check the last drive
+    if (!new_cd_drive) {
+        /*
+        ** Check the last CD drive we used if it's different from the current one
+        */
+        int last_drive = CCFileClass::Get_Last_CD_Drive();
+
+        /*
+        ** Make sure the last drive is valid and it isn't the current drive
+        */
+        if (last_drive && last_drive != CCFileClass::Get_CD_Drive()) //	Else we have already checked this cd.
+        {
+            /*
+            ** Find out if there is a C&C cd in the last drive and if so is it the one we are looking for
+            ** Give it a nice big timeout so the CD changer has time to swap the discs
+            */
+            cd_current = Get_CD_Index(last_drive, 10 * 60);
+
+            if (cd_current >= 0) {
+                if (cd_desired == CD_CS_OR_AM) {
+                    // If the cd is CS or AM then change request to whatever
+                    // is present.
+                    if (cd_current == CD_COUNTERSTRIKE || cd_current == CD_AFTERMATH)
+                        cd_desired = cd_current;
+                }
+                // If the cd is present or any cd will work
+                if (cd_desired == cd_current || cd_desired == CD_ANY) {
+                    /*
+                    ** The required CD is in the CD drive we used last time
+                    */
+                    new_cd_drive = last_drive;
+                }
+            }
+        }
+    }
+
+    /*
+    ** Lordy.  No sign of that blimming CD anywhere. Search all the CD drives
+    ** then if we still can't find it prompt the user to insert it.
+    */
+    if (!new_cd_drive) {
+        /*
+        ** Small timeout for the first pass through the drives
+        */
+        int drive_search_timeout = 2 * 60;
+
+        for (;;) {
+            char buffer[128];
+            /*
+            ** Search all present CD drives for the required disc.
+            */
+            for (int i = 0; i < CDList.Get_Number_Of_Drives(); i++) {
+                int cd_drive = CDList.Get_Next_CD_Drive();
+                cd_current = Get_CD_Index(cd_drive, drive_search_timeout);
+
+                if (cd_current >= 0) {
+                    /*
+                    ** We found a C&C cd - lets see if it was the one we were looking for
+                    */
+                    // Require CS or AM
+                    if (cd_desired == CD_CS_OR_AM) {
+                        // If the cd is CS or AM then change request to whatever
+                        // is present.
+                        if (cd_current == CD_COUNTERSTRIKE || cd_current == CD_AFTERMATH)
+                            cd_desired = cd_current;
+                    }
+
+                    if (cd_desired == cd_current || cd_desired == CD_ANY) {
+                        /*
+                        ** Woohoo! The disk was in a different cd drive. Refresh the search path list
+                        * and return.
+                        */
+                        new_cd_drive = cd_drive;
+                        break;
+                    }
+                }
+            }
+
+            /*
+            ** A new disc has become available so break
+            */
+            if (new_cd_drive)
+                break;
+
+            /*
+            ** Increase the timeout for subsequent drive searches.
+            */
+            drive_search_timeout = 5 * 60;
+
+            /*
+            **	Prompt to insert the CD into the drive.
+            */
+            // V.Grippi
+            if (cd_desired == CD_CS_OR_AM)
+                cd_desired = CD_AFTERMATH;
+
+            if (cd_desired == CD_DVD) {
+#ifdef FRENCH
+                sprintf(buffer, "InsŠrez le %s", _cd_name[4]);
+#else
+#ifdef GERMAN
+                sprintf(buffer, "Bitte %s", _cd_name[4]);
+#else
+                sprintf(buffer, "Please insert the %s", _cd_name[4]);
+#endif
+#endif
+            } else if (cd_desired == CD_COUNTERSTRIKE || cd_desired == CD_AFTERMATH) {
+#ifdef FRENCH
+                sprintf(buffer, "InsŠrez le %s", _cd_name[cd_desired]);
+#else
+#ifdef GERMAN
+                sprintf(buffer, "Bitte %s", _cd_name[cd_desired]);
+#else
+                sprintf(buffer, "Please insert the %s", _cd_name[cd_desired]);
+#endif
+#endif
+            } else if (cd_desired == CD_ANY) {
+                sprintf(buffer, Text_String(TXT_CD_DIALOG_1), cd_desired + 1, "CD1/CD2/CS/AM");
+            } else //	0 or 1
+            {
+                sprintf(buffer, Text_String(TXT_CD_DIALOG_2), cd_desired + 1, _cd_name[cd_desired]);
+            }
+
+            GraphicViewPortClass* oldpage = Set_Logic_Page(SeenBuff);
+            theme_playing = Theme.What_Is_Playing();
+            Theme.Stop();
+            int hidden = Get_Mouse_State();
+            font = (void*)FontPtr;
+
+            /*
+            **	Only set the palette if necessary.
+            */
+            if (PaletteClass::CurrentPalette[1].Red_Component() + PaletteClass::CurrentPalette[1].Blue_Component()
+                    + PaletteClass::CurrentPalette[1].Green_Component()
+                == 0) {
+                GamePalette.Set();
+            }
+
+            Keyboard->Clear();
+
+            while (Get_Mouse_State())
+                Show_Mouse();
+
+            if (WWMessageBox().Process(buffer, TXT_OK, TXT_CANCEL, TXT_NONE, true) == 1) {
+                Set_Logic_Page(oldpage);
+#ifdef FIXIT_VERSION_3
+                while (hidden--)
+                    Hide_Mouse();
+#else
+                Hide_Mouse();
+#endif
+                return (false);
+            }
+
+            while (hidden--)
+                Hide_Mouse();
+            Set_Font(font);
+            Set_Logic_Page(oldpage);
+        }
+    }
+
+    CurrentCD = cd_current;
+
+    CCFileClass::Set_CD_Drive(new_cd_drive);
+    CCFileClass::Refresh_Search_Drives();
+
+    /*
+    **	If it broke out of the query for CD-ROM loop, then this means that the
+    **	CD-ROM has been inserted.
+    */
+    if (cd_desired == 4)
+        cd_desired--;
+
+    //	ajw - Added condition of cd_desired != 5 to the following if.
+    //	Reason: This was triggering before Init_Secondary_Mixfiles(), which was screwing up the mixfile system somehow.
+    //
+    //	Since the DVD is the only disk that can possibly be required when Using_DVD(), I never have to reload the mix
+    //	files here, because no other disk could ever have been asked for. And if not Using_DVD(), cd_desired will never
+    //	be equal to 5. So this is safe.
+    if (cd_desired > -1 && LastCD != cd_desired && cd_desired != 5) {
+        LastCD = cd_desired;
+
+        Theme.Stop();
+        Reinit_Secondary_Mixfiles();
+        ThemeClass::Scan();
+    }
+
+    return (true);
 }
 
 #else //	FIXIT_VERSION_3 not defined
@@ -4212,7 +4737,7 @@ bool Force_CD_Available(int cd)
  * HISTORY:                                                                *
  *   08/11/1995 PWG : Created.                                             *
  *=========================================================================*/
-unsigned int Disk_Space_Available(void)
+unsigned long Disk_Space_Available(void)
 {
     return 0x7fffffff; // ST - 5/8/2019
 #if (0)
@@ -4248,9 +4773,9 @@ static void Do_Record_Playback(void)
     int i;
     COORDINATE coord;
     ObjectClass* obj;
-    unsigned int sum;
-    unsigned int sum2;
-    unsigned int ltgt;
+    unsigned long sum;
+    unsigned long sum2;
+    unsigned long ltgt;
 
     /*
     **	Record a game
@@ -4273,7 +4798,7 @@ static void Do_Record_Playback(void)
         */
         sum = 0;
         for (i = 0; i < count; i++) {
-            ltgt = (unsigned int)(CurrentObject[i]->As_Target());
+            ltgt = (unsigned long)(CurrentObject[i]->As_Target());
             sum += ltgt;
         }
         Session.RecordFile.Write(&sum, sizeof(sum));
@@ -4321,7 +4846,7 @@ static void Do_Record_Playback(void)
             */
             sum = 0;
             for (i = 0; i < CurrentObject.Count(); i++) {
-                ltgt = (unsigned int)(CurrentObject[i]->As_Target());
+                ltgt = (unsigned long)(CurrentObject[i]->As_Target());
                 sum += ltgt;
             }
 
@@ -4512,13 +5037,13 @@ void Shake_The_Screen(int shakes, HousesType house)
         } while (newyoff == oldyoff);
         switch (newyoff) {
         case -1:
-            HidPage.Blit(SeenPage, 0, 2, 0, 0, 640, 398);
+            HidPage.Blit(SeenPage, 0, 2, 0, 0, ScreenWidth, ScreenHeight-2);
             break;
         case 0:
             HidPage.Blit(SeenPage);
             break;
         case 1:
-            HidPage.Blit(SeenPage, 0, 0, 0, 2, 640, 398);
+            HidPage.Blit(SeenPage, 0, 0, 0, 2, ScreenWidth, ScreenHeight - 2);
             break;
         }
         Frame_Limiter();

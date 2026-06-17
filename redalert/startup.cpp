@@ -35,10 +35,13 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
-#include "language.h"
 #include "settings.h"
-#include "common/paths.h"
-#include "common/utfargs.h"
+
+#include "ipx95.h"
+
+#ifdef MCIMPEG // Denzil 6/15/98
+#include "mcimovie.h"
+#endif
 
 extern char RedAlertINI[_MAX_PATH];
 
@@ -46,18 +49,9 @@ bool Read_Private_Config_Struct(FileClass& file, NewConfigType* config);
 void Print_Error_End_Exit(char* string);
 void Print_Error_Exit(char* string);
 
-#ifdef SDL_BUILD
-#define SDL_MAIN_HANDLED
-#include <SDL.h>
-#endif
-
 #ifdef _WIN32
-#include <direct.h>
-#include "common/utf.h"
 extern void Create_Main_Window(HANDLE instance, int command_show, int width, int height);
 HINSTANCE ProgramInstance;
-#else
-#include <unistd.h>
 #endif
 extern bool RA95AlreadyRunning;
 void Check_Use_Compressed_Shapes(void);
@@ -87,42 +81,6 @@ extern unsigned int IsTheaterShape;
 
 extern void Free_Heaps(void);
 extern void DLL_Shutdown(void);
-
-/* Set global variables that require RESFACTOR value.  */
-void Set_Resfactor_Globals(int resfactor)
-{
-    int windowlist[9][9] = {/* xbyte, ypixel, bytewid, pixelht, cursor color, bkgd color,	cursor x, cursor y */
-
-                            /* do not change the first 2 entries!! they are necc. to the system */
-
-                            {0, 0, 40 * 8 * resfactor, 200 * resfactor, WHITE, BLACK, 0, 0}, /* screen window */
-                            {1 * 8, 75, 38 * 8, 100, WHITE, BLACK, 0, 0},                    /* DOS Error window */
-
-                            // Tactical map.
-                            {0, 0, 40 * 8 * resfactor, 200 * resfactor, WHITE, LTGREY, 0, 0},
-
-                            // Initial menu window.
-                            {12 * 8, 199 - 42, 16 * 8, 42, LTGREY, DKGREY, 0, 0},
-
-                            // Sidebar clipping window.
-                            {0, 0, 0, 0, 0, 0, 0, 0},
-
-                            // Scenario editor window.
-                            {5 * 8, 30, 30 * 8, 140, 0, 0, 0, 0},
-
-                            // Partial object draw sub-window.
-                            {0, 0, 0, 0, WHITE, BLACK, 0, 0},
-
-                            // Custom window.
-                            {0, 0, 0, 0, 0, 0, 0, 0},
-
-                            // Virtual window for external rendering. ST - 1/15/2019 3:02PM
-                            {0, 0, 0, 0, 0, 0, 0, 0}
-
-    };
-
-    memcpy((void*)WindowList, (void*)windowlist, sizeof(windowlist));
-}
 
 #if defined REMASTER_BUILD && defined _WIN32
 BOOL WINAPI DllMain(HINSTANCE instance, unsigned int fdwReason, void* lpvReserved)
@@ -189,40 +147,77 @@ BOOL WINAPI DllMain(HINSTANCE instance, unsigned int fdwReason, void* lpvReserve
 #ifdef REMASTER_BUILD
 // int PASCAL WinMain(HINSTANCE, HINSTANCE, char *, int )
 // PG int PASCAL WinMain ( HINSTANCE instance , HINSTANCE , char * command_line , int command_show )
-int main(int, char*[]);
-
 int DLL_Startup(const char* command_line_in)
 {
-    /* Construct argc and argv from command_line_in. Remaster build requires
-    ** that first argument is a full path to DLL, not executable. Furthermore, it
-    ** seems to override the argv to include extra parameters which the DLL
-    ** expects. Getting the argc and argv from executable will result in
-    ** a crash trying to read the font files. */
-
     RunningAsDLL = true;
+    int command_show = SW_HIDE;
     HINSTANCE instance = ProgramInstance;
     char command_line[1024];
-    int argc = 0;
+    strcpy(command_line, command_line_in);
+#elif defined _WIN32
+int PASCAL WinMain(HINSTANCE instance, HINSTANCE, char* command_line, int command_show)
+{
+#else
+int main(int argc, char* argv[])
+{
+#endif // _WIN32
+
+// printf("in program.\n");getch();
+// printf("ram free = %ld\n",Ram_Free(MEM_NORMAL));getch();
+#ifdef _WIN32
+    if (Ram_Free(MEM_NORMAL) < 7000000) {
+#else
+
+    void* temp_mem = malloc(13 * 1024 * 1024);
+    if (temp_mem) {
+        free(temp_mem);
+    } else {
+
+#endif
+        printf(TEXT_NO_RAM);
+
+#if (0)
+
+        /*
+        ** Take a stab at finding out how much memory there is available.
+        */
+
+        for (int mem = 13 * 1024 * 1024; mem > 0; mem -= 1024) {
+            temp_mem = malloc(mem);
+            if (temp_mem) {
+                free(temp_mem);
+                printf("Memory available: %d", mem);
+                break;
+            }
+        }
+
+        getch();
+#endif //(0)
+        return (EXIT_FAILURE);
+    }
+
+#ifdef _WIN32
+
+    if (strstr(command_line, "f:\\projects\\c&c0") != NULL || strstr(command_line, "F:\\PROJECTS\\C&C0") != NULL) {
+        MessageBoxA(0, "Playing off of the network is not allowed.", "Red Alert", MB_OK | MB_ICONSTOP);
+        return (EXIT_FAILURE);
+    }
+
+    int argc; // Command line argument count
     unsigned command_scan;
     char command_char;
-    char* argv[20];
-    char path_to_exe[280];
+    char* argv[20]; // Pointers to command line arguments
+    char path_to_exe[132];
 
-    strcpy(command_line, command_line_in);
     ProgramInstance = instance;
 
     /*
-    ** Get the full path to the .DLL
+    ** Get the full path to the .EXE
     */
-    DWORD readed = GetModuleFileNameA(instance, &path_to_exe[0], 280);
-    if (readed >= 280 - 1) {
-        MessageBoxA(NULL, "Path to remaster is too large.", "Command & Conquer", MB_ICONEXCLAMATION | MB_OK);
-        return -1;
-    }
+    GetModuleFileNameA(instance, &path_to_exe[0], 132);
 
     /*
     ** First argument is supposed to be a pointer to the .EXE that is running
-    ** - False. Must be a pointer to the DLL - giulianob 07/11/2021
     **
     */
     argc = 1;                  // Set argument count to 1
@@ -236,8 +231,6 @@ int DLL_Startup(const char* command_line_in)
     */
 
     command_scan = 0;
-
-    /* This certainly can be improved, but worse than this is not working :)*/
 
     do {
         /*
@@ -260,45 +253,78 @@ int DLL_Startup(const char* command_line_in)
                     in_quotes = !in_quotes;
                 }
             } while ((in_quotes || command_char != ' ') && command_char != 0 && command_char != 13);
-
             *(command_line + command_scan - 1) = 0;
         }
 
     } while (command_char != 0 && command_char != 13 && argc < 20);
 
-    if (argc >= 20) {
-        MessageBoxA(NULL, "Too many arguments on command line.", "Command & Conquer", MB_ICONEXCLAMATION | MB_OK);
-        return -1;
-    }
-
-    return main(argc, argv);
-}
-#endif //REMASTER_BUILD
-
-int main(int argc, char* argv[])
-{
-    UtfArgs args(argc, argv);
-    WWDebugString("RA95 - Starting up.\n");
-
-    if (Ram_Free(MEM_NORMAL) < 7000000) {
-        printf(TEXT_NO_RAM);
-
-        return (EXIT_FAILURE);
-    }
+#endif // _WIN32
 
     /*
     **	Remember the current working directory and drive.
     */
-    Paths.Init("vanillara", CONFIG_FILE_NAME, "REDALERT.MIX", args.ArgV[0]);
-    CDFileClass::Refresh_Search_Drives();
+#if (0) // PG
+    unsigned olddrive;
+    char oldpath[MAX_PATH];
+    getcwd(oldpath, sizeof(oldpath));
+    _dos_getdrive(&olddrive);
 
-    if (Parse_Command_Line(args.ArgC, args.ArgV)) {
+    /*
+    **	Change directory to the where the executable is located. Handle the
+    **	case where there is no path attached to argv[0].
+    */
+    char drive[_MAX_DRIVE];
+    char path[_MAX_PATH];
+    unsigned drivecount;
+    _splitpath(argv[0], drive, path, NULL, NULL);
+    if (!drive[0]) {
+        drive[0] = ('A' + olddrive) - 1;
+    }
+    if (!path[0]) {
+        strcpy(path, ".");
+    }
+    _dos_setdrive(toupper((drive[0]) - 'A') + 1, &drivecount);
+    if (path[strlen(path) - 1] == '\\') {
+        path[strlen(path) - 1] = '\0';
+    }
+    chdir(path);
+#elif defined _WIN32 // OmniBlade: Win32 version of the commented out dos/watcom code.
+    char path[MAX_PATH];
+    GetModuleFileNameA(GetModuleHandleA(nullptr), path, sizeof(path));
+
+    for (char* i = &path[strlen(path)]; i != path; --i) {
+        if (*i == '\\' || *i == '/') {
+            *i = '\0';
+            break;
+        }
+    }
+
+    SetCurrentDirectoryA(path);
+#endif
+
+    if (Parse_Command_Line(argc, argv)) {
 
         WinTimerClass::Init(60);
 
-        CCFileClass cfile(CONFIG_FILE_NAME);
+#ifdef REMASTER_BUILD
+        ////////////////////////////////////////
+        // The editor needs to load the Red Alert ini file from a different location than the real game. - 7/18/2019 JAS
+        char* red_alert_file_path = nullptr;
+        if (RunningFromEditor) {
+            red_alert_file_path = RedAlertINI;
+        } else {
+            red_alert_file_path = CONFIG_FILE_NAME;
+        }
 
-        Keyboard = CreateWWKeyboardClass();
+        RawFileClass cfile(red_alert_file_path);
+        // RawFileClass cfile(CONFIG_FILE_NAME);
+        // end of change - 7/18/2019 JAS
+        ////////////////////////////////////////
+#else
+        RawFileClass cfile(CONFIG_FILE_NAME);
+#endif
+
+        Keyboard = new WWKeyboardClass();
 
         /*
         ** If there is loads of memory then use uncompressed shapes
@@ -320,203 +346,249 @@ int main(int argc, char* argv[])
 #endif
         }
 
-        Read_Private_Config_Struct(cfile, &NewConfig);
+        if (cfile.Is_Available()) {
 
-        /*
-        ** Set the options as requested by the ccsetup program
-        */
-        Read_Setup_Options(&cfile);
+            Read_Private_Config_Struct(cfile, &NewConfig);
 
-#ifndef REMASTER_BUILD
-        /* If DOSMode is enabled, adjust resolution accordingly. */
-        if (Settings.Video.DOSMode) {
-            RESFACTOR = 1;
-            ScreenWidth = 320;
-            ScreenHeight = 200;
-        }
+            /*
+            ** Set the options as requested by the ccsetup program
+            */
+            Read_Setup_Options(&cfile);
+
+#if defined(_WIN32) && !defined(SDL2_BUILD)
+            Create_Main_Window(instance, command_show, ScreenWidth, ScreenHeight);
 #endif
-        Set_Resfactor_Globals(RESFACTOR);
+            SoundOn = Audio_Init(16, false, 11025 * 2, 0);
 
-#if defined(_WIN32) && !defined(SDL_BUILD)
-        /* WinMain seems to pass command_show to Create_Main_Window, but since we
-        ** are not using WinMain anymore, we simply pass 0 to it. */
-        Create_Main_Window(ProgramInstance, 0, ScreenWidth, ScreenHeight);
-#endif
-        SoundOn = Audio_Init(16, false, 11025 * 2, false);
-
-        bool video_success = false;
-
-#ifdef REMASTER_BUILD
-        video_success = true;
+#ifdef MPEGMOVIE // Denzil 6/10/98
+            if (!InitDDraw())
+                return (EXIT_FAILURE);
 #else
-        if (Set_Video_Mode(ScreenWidth, ScreenHeight, 8)) {
+            bool video_success = false;
+            /*
+            ** Set 640x400 video mode. If its not available then try for 640x480
+            */
+#ifdef REMASTER_BUILD
             video_success = true;
-        }
+#else
+            if (ScreenHeight == 400) {
+                if (Set_Video_Mode(ScreenWidth, ScreenHeight, 8)) {
+                    video_success = true;
+                } else {
+                    if (Set_Video_Mode(ScreenWidth, 480, 8)) {
+                        video_success = true;
+                        ScreenHeight = 480;
+                    }
+                }
+            } else {
+                if (Set_Video_Mode(ScreenWidth, ScreenHeight, 8)) {
+                    video_success = true;
+                }
+            }
 #endif
 
-        if (!video_success) {
+            if (!video_success) {
 #ifdef _WIN32
-            MessageBoxA(MainWindow, TEXT_VIDEO_ERROR, TEXT_SHORT_TITLE, MB_ICONEXCLAMATION | MB_OK);
+                MessageBoxA(MainWindow, TEXT_VIDEO_ERROR, TEXT_SHORT_TITLE, MB_ICONEXCLAMATION | MB_OK);
 #endif
-            // if (Palette) delete Palette;
-            return (EXIT_FAILURE);
-        }
+                // if (Palette) delete Palette;
+                return (EXIT_FAILURE);
+            }
+
+            if (ScreenWidth == 320) {
+                VisiblePage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
+                ModeXBuff.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)(GBC_VISIBLE | GBC_VIDEOMEM));
+            } else {
 
 #ifdef REMASTER_BUILD // ST - 1/3/2019 2:11PM
 
-        VisiblePage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
-        HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
+                VisiblePage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
+                HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
 
 #else
-        VisiblePage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)(GBC_VISIBLE | GBC_VIDEOMEM));
-
-        /*
-        ** Check that we really got a video memory page. Failure is fatal.
-        */
-        if (VisiblePage.IsAllocated()) {
-            /*
-            ** Aaaarrgghh!
-            */
-            WWDebugString(TEXT_DDRAW_ERROR);
-            WWDebugString("\n");
-#ifdef _WIN32
-            MessageBoxA(MainWindow, TEXT_DDRAW_ERROR, TEXT_SHORT_TITLE, MB_ICONEXCLAMATION | MB_OK);
-#endif
-            return (EXIT_FAILURE);
-        }
-
-        /*
-        ** If we have enough left then put the hidpage in video memory unless...
-        **
-        ** If there is no blitter then we will get better performance with a system
-        ** memory hidpage
-        **
-        ** Use a system memory page if the user has specified it via the ccsetup program.
-        */
-        unsigned video_memory = Get_Free_Video_Memory();
-        unsigned video_capabilities = Get_Video_Hardware_Capabilities();
-        if (video_memory < (unsigned int)(ScreenWidth * ScreenHeight) || (!(video_capabilities & VIDEO_BLITTER))
-            || (video_capabilities & VIDEO_NO_HARDWARE_ASSIST) || !VideoBackBufferAllowed) {
-            HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
-        } else {
-            // HiddenPage.Init (ScreenWidth , ScreenHeight , NULL , 0 , (GBC_Enum)0);
-            HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)GBC_VIDEOMEM);
-
-            /*
-            ** Make sure we really got a video memory hid page. If we didnt then things
-            ** will run very slowly.
-            */
-            if (HiddenPage.IsAllocated()) {
+                VisiblePage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)(GBC_VISIBLE | GBC_VIDEOMEM));
 
                 /*
-                ** Oh dear, big trub. This must be an IBM Aptiva or something similarly cruddy.
-                ** We must redo the Hidden Page as system memory.
+                ** Check that we really got a video memory page. Failure is fatal.
                 */
-                HiddenPage.Un_Init();
-                HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
+                if (VisiblePage.IsAllocated()) {
+                    /*
+                    ** Aaaarrgghh!
+                    */
+                    WWDebugString(TEXT_DDRAW_ERROR);
+                    WWDebugString("\n");
+#ifdef _WIN32
+                    MessageBoxA(MainWindow, TEXT_DDRAW_ERROR, TEXT_SHORT_TITLE, MB_ICONEXCLAMATION | MB_OK);
+#endif
+                    return (EXIT_FAILURE);
+                }
+
+                /*
+                ** If we have enough left then put the hidpage in video memory unless...
+                **
+                ** If there is no blitter then we will get better performance with a system
+                ** memory hidpage
+                **
+                ** Use a system memory page if the user has specified it via the ccsetup program.
+                */
+                unsigned video_memory = Get_Free_Video_Memory();
+                unsigned video_capabilities = Get_Video_Hardware_Capabilities();
+                if (video_memory < (unsigned int)(ScreenWidth * ScreenHeight) || (!(video_capabilities & VIDEO_BLITTER))
+                    || (video_capabilities & VIDEO_NO_HARDWARE_ASSIST) || !VideoBackBufferAllowed) {
+                    HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
+                } else {
+                    // HiddenPage.Init (ScreenWidth , ScreenHeight , NULL , 0 , (GBC_Enum)0);
+                    HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)GBC_VIDEOMEM);
+
+                    /*
+                    ** Make sure we really got a video memory hid page. If we didnt then things
+                    ** will run very slowly.
+                    */
+                    if (HiddenPage.IsAllocated()) {
+
+                        /*
+                        ** Oh dear, big trub. This must be an IBM Aptiva or something similarly cruddy.
+                        ** We must redo the Hidden Page as system memory.
+                        */
+                        HiddenPage.Un_Init();
+                        HiddenPage.Init(ScreenWidth, ScreenHeight, NULL, 0, (GBC_Enum)0);
+                    } else {
+                        VisiblePage.Attach_DD_Surface(&HiddenPage);
+                    }
+                }
+#endif
+            }
+
+            // ScreenHeight = GBUFF_INIT_HEIGHT;
+
+            if (Show640x480BlackBars == true) {
+                SeenBuff.Attach(&VisiblePage, 0, 40, GBUFF_INIT_WIDTH, GBUFF_INIT_ALTHEIGHT);
+                HidPage.Attach(&HiddenPage, 0, 40, GBUFF_INIT_WIDTH, GBUFF_INIT_ALTHEIGHT);
             } else {
-                VisiblePage.Attach_DD_Surface(&HiddenPage);
+                SeenBuff.Attach(&VisiblePage, 0, 0, ScreenWidth, ScreenHeight);
+                HidPage.Attach(&HiddenPage, 0, 0, ScreenWidth, ScreenHeight);
+            }
+#endif // MPEGMOVIE - Denzil 6/10/98
+
+            Options.Adjust_Variables_For_Resolution();
+
+            /*
+            ** Install the memory error handler
+            */
+            Memory_Error = &Memory_Error_Handler;
+
+            WindowList[0][WINDOWWIDTH] = SeenBuff.Get_Width();
+            WindowList[0][WINDOWHEIGHT] = SeenBuff.Get_Height();
+            WindowList[WINDOW_EDITOR][WINDOWWIDTH] = SeenBuff.Get_Width();
+            WindowList[WINDOW_EDITOR][WINDOWHEIGHT] = SeenBuff.Get_Height();
+
+            ////////////////////////////////////////
+            // The editor needs to not start the mouse up. - 7/22/2019 JAS
+            if (!RunningFromEditor) {
+                WWMouse = new WWMouseClass(&SeenBuff, 48, 48);
+                MouseInstalled = true;
+            }
+
+#ifndef REMASTER_BUILD
+            CDFileClass::Set_CD_Drive(CDList.Get_First_CD_Drive());
+#endif
+
+            /*
+            ** See if we should run the intro
+            */
+            INIClass ini;
+            ini.Load(cfile);
+
+            /*
+            **	Check for forced intro movie run disabling. If the conquer
+            **	configuration file says "no", then don't run the intro.
+            */
+            if (!Special.IsFromInstall) {
+                Special.IsFromInstall = ini.Get_Bool("Intro", "PlayIntro", true);
+            }
+            SlowPalette = ini.Get_Bool("Options", "SlowPalette", false);
+
+            /*
+            ** Regardless of whether we should run it or not, here we're
+            ** gonna change it to say "no" in the future.
+            */
+            if (Special.IsFromInstall) {
+                BreakoutAllowed = true;
+                //				BreakoutAllowed = false;
+                ini.Put_Bool("Intro", "PlayIntro", false);
+                ini.Save(cfile);
+            }
+
+            /*
+            **	If the intro is being run for the first time, then don't
+            **	allow breaking out of it with the <ESC> key.
+            */
+            if (Special.IsFromInstall) {
+                BreakoutAllowed = true;
+                //				BreakoutAllowed = false;
+            }
+
+            Memory_Error_Exit = Print_Error_End_Exit;
+
+            Main_Game(argc, argv);
+
+            if (RunningAsDLL) { // PG
+                return (EXIT_SUCCESS);
+            }
+
+#ifdef MPEGMOVIE // Denzil 6/15/98
+            if (MpgSettings != NULL)
+                delete MpgSettings;
+
+#ifdef MCIMPEG
+            if (MciMovie != NULL)
+                delete MciMovie;
+#endif
+#endif
+            /*
+            ** Save settings if they were changed during gameplay.
+            */
+            Settings.Save(ini);
+            ini.Save(cfile);
+
+            VisiblePage.Clear();
+            HiddenPage.Clear();
+            Memory_Error_Exit = Print_Error_Exit;
+
+#ifdef SDL2_BUILD
+            Reset_Video_Mode();
+#endif
+
+            /*
+            ** Flag that this is a clean shutdown (not killed with Ctrl-Alt-Del)
+            */
+            ReadyToQuit = 1;
+
+            /*
+            ** Post a message to our message handler to tell it to clean up.
+            */
+#if defined(_WIN32) && !defined(SDL2_BUILD)
+            PostMessage(MainWindow, WM_DESTROY, 0, 0);
+
+            /*
+            ** Wait until the message handler has dealt with the message
+            */
+            do {
+                Keyboard->Check();
+            } while (ReadyToQuit == 1);
+#endif
+
+            return (EXIT_SUCCESS);
+        } else {
+            if (!RunningFromEditor) {
+                puts(TEXT_SETUP_FIRST);
+                Keyboard->Get();
             }
         }
-#endif
-
-        SeenBuff.Attach(&VisiblePage, 0, 0, ScreenWidth, ScreenHeight);
-        HidPage.Attach(&HiddenPage, 0, 0, ScreenWidth, ScreenHeight);
-
-        Options.Adjust_Variables_For_Resolution();
-
-        /*
-        ** Install the memory error handler
-        */
-        Memory_Error = &Memory_Error_Handler;
-
-        WindowList[0][WINDOWWIDTH] = SeenBuff.Get_Width();
-        WindowList[0][WINDOWHEIGHT] = SeenBuff.Get_Height();
-        WindowList[WINDOW_EDITOR][WINDOWWIDTH] = SeenBuff.Get_Width();
-        WindowList[WINDOW_EDITOR][WINDOWHEIGHT] = SeenBuff.Get_Height();
-
-        ////////////////////////////////////////
-        // The editor needs to not start the mouse up. - 7/22/2019 JAS
-        if (!RunningFromEditor) {
-            WWMouse = new WWMouseClass(&SeenBuff, 48, 48);
-            MouseInstalled = true;
-        }
-
-        /*
-        ** See if we should run the intro
-        */
-        INIClass ini;
-        ini.Load(cfile);
-
-        /*
-        **	Check for forced intro movie run disabling. If the conquer
-        **	configuration file says "no", then don't run the intro.
-        */
-        if (!Special.IsFromInstall) {
-            Special.IsFromInstall = ini.Get_Bool("Intro", "PlayIntro", true);
-        }
-        SlowPalette = ini.Get_Bool("Options", "SlowPalette", false);
-
-        /*
-        ** Regardless of whether we should run it or not, here we're
-        ** gonna change it to say "no" in the future.
-        */
-        if (Special.IsFromInstall) {
-            BreakoutAllowed = true;
-            //				BreakoutAllowed = false;
-            ini.Put_Bool("Intro", "PlayIntro", false);
-            ini.Save(cfile);
-        }
-
-        Memory_Error_Exit = Print_Error_End_Exit;
-
-        Main_Game(argc, argv);
-
-        if (RunningAsDLL) { // PG
-            return (EXIT_SUCCESS);
-        }
-
-        /*
-        ** Save settings if they were changed during gameplay.
-        */
-        ini.Load(cfile);
-        Settings.Save(ini);
-        ini.Save(cfile);
-
-        VisiblePage.Clear();
-        HiddenPage.Clear();
-        Memory_Error_Exit = Print_Error_Exit;
-
-#ifdef NEW_VIDEO_BUILD
-        Reset_Video_Mode();
-#endif
-
-        Sound_End();
-
-        /*
-        ** Flag that this is a clean shutdown (not killed with Ctrl-Alt-Del)
-        */
-        ReadyToQuit = 1;
-
-        /*
-        ** Post a message to our message handler to tell it to clean up.
-        */
-#if defined(_WIN32) && !defined(SDL_BUILD)
-        PostMessage(MainWindow, WM_DESTROY, 0, 0);
-#endif
-
-#if !defined(REMASTER_BUILD) && defined(_WIN32) && !defined(SDL_BUILD)
-        /*
-        ** Wait until the message handler has dealt with the message
-        */
-        do {
-            Keyboard->Check();
-        } while (ReadyToQuit == 1);
-#endif
-
-        return (EXIT_SUCCESS);
     }
-
+    /*
+    **	Restore the current drive and directory.
+    */
     return (EXIT_SUCCESS);
 }
 
@@ -533,8 +605,20 @@ bool InitDDraw(void)
 #else
     bool video_success = false;
 
-    if (Set_Video_Mode(ScreenWidth, ScreenHeight, 8)) {
-        video_success = true;
+    /* Set 640x400 video mode. If its not available then try for 640x480 */
+    if (ScreenHeight == 400) {
+        if (Set_Video_Mode(ScreenWidth, ScreenHeight, 8)) {
+            video_success = true;
+        } else {
+            if (Set_Video_Mode(ScreenWidth, 480, 8)) {
+                video_success = true;
+                ScreenHeight = 480;
+            }
+        }
+    } else {
+        if (Set_Video_Mode(ScreenWidth, ScreenHeight, 8)) {
+            video_success = true;
+        }
     }
 
     if (!video_success) {
@@ -592,8 +676,15 @@ bool InitDDraw(void)
         }
     }
 
-    SeenBuff.Attach(&VisiblePage, 0, 0, ScreenWidth, ScreenHeight);
-    HidPage.Attach(&HiddenPage, 0, 0, ScreenWidth, ScreenHeight);
+    ScreenHeight = 400;
+
+    if (Show640x480BlackBars == true) {
+        SeenBuff.Attach(&VisiblePage, 0, 40, GBUFF_INIT_WIDTH, GBUFF_INIT_ALTHEIGHT);
+        HidPage.Attach(&HiddenPage, 0, 40, GBUFF_INIT_WIDTH, GBUFF_INIT_ALTHEIGHT);
+    } else {
+        SeenBuff.Attach(&VisiblePage, 0, 0, ScreenWidth, ScreenHeight);
+        HidPage.Attach(&HiddenPage, 0, 0, ScreenWidth, ScreenHeight);
+    }
 #endif
     return true;
 }
@@ -695,22 +786,16 @@ void Emergency_Exit(int code)
     /*
     ** Post a message to our message handler to tell it to clean up.
     */
-#ifdef SDL_BUILD
-    SDL_Event sdlevent;
-    sdlevent.type = SDL_QUIT;
-    SDL_PushEvent(&sdlevent);
-#elif defined _WIN32
+#ifdef _WIN32
     PostMessage(MainWindow, WM_DESTROY, 0, 0);
 #endif
 
-#if !defined(REMASTER_BUILD) && defined(_WIN32) && !defined(SDL_BUILD)
     /*
     ** Wait until the message handler has dealt with the message
     */
     do {
         Keyboard->Check();
     } while (ReadyToQuit == 3);
-#endif
 
     exit(code);
 }
@@ -732,20 +817,83 @@ void Emergency_Exit(int code)
  *=============================================================================================*/
 void Read_Setup_Options(RawFileClass* config_file)
 {
-    INIClass ini;
+    if (config_file->Is_Available()) {
 
-    ini.Load(*config_file);
+        INIClass ini;
 
-    /*
-    ** Read in global settings
-    */
-    Settings.Load(ini);
+        ini.Load(*config_file);
 
-    /*
-    ** Read in the boolean options
-    */
-    VideoBackBufferAllowed = ini.Get_Bool("Options", "VideoBackBuffer", true);
-    AllowHardwareBlitFills = ini.Get_Bool("Options", "HardwareFills", true);
+        /*
+        ** Read in global settings
+        */
+        Settings.Load(ini);
+
+        /*
+        ** Read in the boolean options
+        */
+        VideoBackBufferAllowed = ini.Get_Bool("Options", "VideoBackBuffer", true);
+        AllowHardwareBlitFills = ini.Get_Bool("Options", "HardwareFills", true);
+
+		Show640x480BlackBars = ini.Get_Bool("Options", "Show640x480BlackBars", false);
+
+		ScreenWidth = ini.Get_Int("Options", "Width", 640);
+		ScreenHeight = ini.Get_Int("Options", "Height", ScreenHeight);
+
+        OutputWidth = ini.Get_Int("Options", "OutputWidth", ScreenWidth);
+		OutputHeight = ini.Get_Int("Options", "OutputHeight", ScreenHeight);
+		
+
+        /*
+        ** See if an alternative socket number has been specified
+        */
+        int socket = ini.Get_Int("Options", "Socket", 0);
+        if (socket > 0) {
+            socket += 0x4000;
+            if (socket >= 0x4000 && socket < 0x8000) {
+                Ipx.Set_Socket(socket);
+            }
+        }
+
+        /*
+        ** See if a destination network has been specified
+        */
+        char netbuf[512];
+        memset(netbuf, 0, sizeof(netbuf));
+        char* netptr = netbuf;
+        bool found = ini.Get_String("Options", "DestNet", NULL, netbuf, sizeof(netbuf));
+
+        if (found && netptr != NULL && strlen(netbuf)) {
+            NetNumType net;
+            NetNodeType node;
+
+            /*
+            ** Scan the string, pulling off each address piece
+            */
+            int i = 0;
+            char* p = strtok(netbuf, ".");
+            int x;
+            while (p != NULL) {
+                sscanf(p, "%x", &x); // convert from hex string to int
+                if (i < 4) {
+                    net[i] = (char)x; // fill NetNum
+                } else {
+                    node[i - 4] = (char)x; // fill NetNode
+                }
+                i++;
+                p = strtok(NULL, ".");
+            }
+
+            /*
+            ** If all the address components were successfully read, fill in the
+            ** BridgeNet with a broadcast address to the network across the bridge.
+            */
+            if (i >= 4) {
+                Session.IsBridge = 1;
+                memset(node, 0xff, 6);
+                Session.BridgeNet = IPXAddressClass(net, node);
+            }
+        }
+    }
 }
 
 void Get_OS_Version(void)

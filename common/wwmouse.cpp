@@ -45,7 +45,7 @@
 
 #if defined(_WIN32) && !defined(SDL_BUILD)
 #include <mmsystem.h>
-void CALLBACK Process_Mouse(UINT event_id, UINT res1, DWORD user, DWORD res2, DWORD res3);
+void CALLBACK Process_Mouse(UINT event_id, UINT res1, DWORD_PTR user, DWORD_PTR res2, DWORD_PTR res3);
 #endif
 
 static WWMouseClass* _Mouse = nullptr;

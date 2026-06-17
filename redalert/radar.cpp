@@ -144,28 +144,33 @@ RadarClass::RadarClass(void)
  *=============================================================================================*/
 void RadarClass::One_Time(void)
 {
-    RadWidth = 80 * RESFACTOR;
-    RadHeight = 70 * RESFACTOR;
-    RadX = SeenBuff.Get_Width() - RadWidth;
-    RadY = 7 * RESFACTOR;
-    RadPWidth = 64 * RESFACTOR;
-    RadPHeight = 64 * RESFACTOR;
-    RadOffX = 6;
-    RadOffY = 7;
-    RadIWidth = (64 + 9) * RESFACTOR;  //************
-    RadIHeight = (64 + 1) * RESFACTOR; //************
+	Radar_Hires_Positioning_Adjustments();
+	DisplayClass::One_Time();
+}
 
-    DisplayClass::One_Time();
+void RadarClass::Radar_Hires_Positioning_Adjustments(void) {
+	RadWidth = 80 * RESFACTOR;
+	RadHeight = 70 * RESFACTOR;
+	RadX = SeenBuff.Get_Width() - RadWidth;
+	RadY = 7 * RESFACTOR;
+	RadPWidth = 64 * RESFACTOR;
+	RadPHeight = 64 * RESFACTOR;
+	RadOffX = 6;
+	RadOffY = 7;
+	RadIWidth = 128 + 18; //************
+	RadIHeight = 128 + 2; //************
+
+
 #ifdef OBSOLETE
-    RadarButton.X = RadX + RadOffX;
-    RadarButton.Y = RadY + RadOffY;
-    RadarButton.Width = RadIWidth;
-    RadarButton.Height = RadIHeight;
+	RadarButton.X = RadX + RadOffX;
+	RadarButton.Y = RadY + RadOffY;
+	RadarButton.Width = RadIWidth;
+	RadarButton.Height = RadIHeight;
 #else
-    RadarButton.X = RadX;
-    RadarButton.Y = RadY;
-    RadarButton.Width = RadWidth;
-    RadarButton.Height = RadHeight;
+	RadarButton.X = RadX;
+	RadarButton.Y = RadY;
+	RadarButton.Width = RadWidth;
+	RadarButton.Height = RadHeight;
 #endif
 }
 
@@ -200,7 +205,7 @@ void RadarClass::Init_Clear(void)
     ** If we have a valid map lets make sure that we set it correctly
     */
     if (MapCellWidth || MapCellHeight) {
-        IsZoomed = true;
+        IsZoomed = false;
         Zoom_Mode(Coord_Cell(Map.TacticalCoord));
     }
 }
@@ -353,7 +358,7 @@ void RadarClass::Draw_It(bool forced)
 
 #ifndef REMASTER_BUILD // Legacy radar rendering not used. ST - 2/26/2020 3:53PM
 
-    static const char* _hiresradarnames[] = {
+    static char* _hiresradarnames[] = {
         "natoradr.shp", // HOUSE_SPAIN,
         "natoradr.shp", // HOUSE_GREECE,
         "ussrradr.shp", // HOUSE_USSR,
@@ -365,7 +370,7 @@ void RadarClass::Draw_It(bool forced)
         "natoradr.shp", // HOUSE_GOOD
         "ussrradr.shp", // HOUSE_BAD
     };
-    static const char* _frames[] = {
+    static char* _frames[] = {
         "nradrfrm.shp", // HOUSE_SPAIN,
         "nradrfrm.shp", // HOUSE_GREECE,
         "uradrfrm.shp", // HOUSE_USSR,
@@ -589,13 +594,14 @@ void RadarClass::Draw_It(bool forced)
                 Set_Logic_Page(oldpage);
             }
 
-        } else {
+        } else if (Map.IsSidebarActive && (forced) && !Debug_Map) {
 
             /*
             **	If the radar is not active, then only draw the cover plate if forced to do so.
             */
             int val = (DoesRadarExist) ? MAX_RADAR_FRAMES : 0;
             CC_Draw_Shape(RadarAnim, val, RadX, RadY + (1 * RESFACTOR), WINDOW_MAIN, SHAPE_NORMAL);
+
             FullRedraw = false;
             IsToRedraw = false;
 
@@ -639,7 +645,7 @@ void RadarClass::Draw_It(bool forced)
  *=========================================================================*/
 void RadarClass::Render_Terrain(CELL cell, int x, int y, int size)
 {
-    TerrainClass* list[ARRAY_SIZE(Map[(CELL)0].Overlapper) + 1] = {};
+    TerrainClass* list[4] = {0, 0, 0, 0};
     int listidx = 0;
     int lp, lp2;
 
@@ -1755,7 +1761,6 @@ int RadarClass::RTacticalClass::Action(unsigned flags, KeyNumType& key)
                 case ACTION_ENTER:
                 case ACTION_CAPTURE:
                 case ACTION_SABOTAGE:
-                case ACTION_HARVEST:
                     break;
 
                 default:

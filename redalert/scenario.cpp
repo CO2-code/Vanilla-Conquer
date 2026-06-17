@@ -60,10 +60,7 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
-#include "msgbox.h"
-#include "textbtn.h"
-#include "factory.h"
-#include "carry.h"
+#include "common/tcpip.h"
 #include "common/framelimit.h"
 
 extern int PreserveVQAScreen;
@@ -164,7 +161,6 @@ ScenarioClass::ScenarioClass(void)
     , IsNoMapSel(false)
     , IsTruckCrate(false)
     , IsMoneyTiberium(false)
-    , EnableEvac(true)
     ,
 #ifdef FIXIT_VERSION_3 //	For endgame auto-sonar pulse.
 #define AUTOSONAR_PERIOD TICKS_PER_SECOND * 40
@@ -313,9 +309,10 @@ bool ScenarioClass::Set_Global_To(int global, bool value)
  *=============================================================================================*/
 bool Start_Scenario(char* name, bool briefing)
 {
-    if (Session.Type != GAME_NORMAL) {
-        briefing = false;
-    }
+	if (Session.Type != GAME_NORMAL) {
+		briefing = false;
+	}
+
 
     // BG	Theme.Queue_Song(THEME_QUIET);
     Theme.Stop();
@@ -324,11 +321,6 @@ bool Start_Scenario(char* name, bool briefing)
         return (false);
     }
 
-    /*
-    ** This was added in the Sept 16th 2020 update, causes colors to alternate for both in standalone.
-    ** Seems likely it would affect the remaster classic renderer as well?
-    */
-#ifdef REMASTER_BUILD
     /* Swap Lt. Blue and Blue color remaps in skirmish/multiplayer */
     if (Session.Type != GAME_NORMAL) {
         RemapControlType temp;
@@ -336,7 +328,6 @@ bool Start_Scenario(char* name, bool briefing)
         memcpy(&ColorRemaps[PCOLOR_LTBLUE], &ColorRemaps[PCOLOR_BLUE], sizeof(RemapControlType));
         memcpy(&ColorRemaps[PCOLOR_BLUE], &temp, sizeof(RemapControlType));
     }
-#endif
 
     /*
     **	Play the winning movie and then start the next scenario.
@@ -513,10 +504,13 @@ bool Read_Scenario(char* name)
             /*
             ** Find out if the CD in the current drive is the Aftermath disc.
             */
-            RequiredCD = 3;
-            if (!Force_CD_Available(RequiredCD)) { // force Aftermath CD in drive.
-                if (!RunningAsDLL) {               // PG
-                    Emergency_Exit(EXIT_FAILURE);
+            if (Get_CD_Index(CCFileClass::Get_CD_Drive(), 1 * 60) != 3) {
+                GamePalette.Set(FADE_PALETTE_FAST, Call_Back);
+                RequiredCD = 3;
+                if (!Force_CD_Available(RequiredCD)) { // force Aftermath CD in drive.
+                    if (!RunningAsDLL) {               // PG
+                        Emergency_Exit(EXIT_FAILURE);
+                    }
                 }
             }
             CCINIClass ini;
@@ -732,6 +726,8 @@ void Post_Load_Game(int load_multi)
     }
     Scen.BridgeCount = Map.Intact_Bridge_Count();
     Map.Zone_Reset(MZONEF_ALL);
+	Map.Hires_Positioning_Adjustments();
+	Map.Radar_Hires_Positioning_Adjustments();
 }
 
 /***********************************************************************************************
@@ -755,7 +751,6 @@ void Post_Load_Game(int load_multi)
 void Clear_Scenario(void)
 {
     // TCTCTC -- possibly just use in-place new of scenario object?
-    ChronalVortex.Stop();
 
     Scen.MissionTimer = 0;
     Scen.MissionTimer.Stop();
@@ -783,10 +778,6 @@ void Clear_Scenario(void)
     Scen.CarryOverPercent = 0;
     Scen.TransitTheme = THEME_NONE;
     Scen.Percent = 0;
-    /*
-    ** Default setting for evac depends on session type.
-    */
-    Scen.EnableEvac = Session.Type == GAME_NORMAL ? true : false;
 
     memset(Scen.GlobalFlags, 0, sizeof(Scen.GlobalFlags));
 
@@ -900,7 +891,7 @@ void Do_Win(void)
         Map.Render();
         Fancy_Text_Print(TXT_SCENARIO_WON,
                          x,
-                         90 * RESFACTOR,
+                         (90 * RESFACTOR) + HIRES_ADJ_H,
                          &ColorRemaps[PCOLOR_RED],
                          TBLACK,
                          TPF_CENTER | TPF_VCR | TPF_USE_GRAD_PAL | TPF_DROPSHADOW);
@@ -926,7 +917,7 @@ void Do_Win(void)
                 Session.CurGame = MAX_MULTI_GAMES - 1;
             }
         }
-        GameActive = false;
+        GameActive = 0;
         Show_Mouse();
         return;
     }
@@ -998,7 +989,7 @@ void Do_Win(void)
             if (AntsEnabled) {
                 char scenarioname[24];
                 strcpy(scenarioname, Scen.ScenarioName);
-                char buf[12];
+                char buf[10];
                 Scen.Scenario++;
                 sprintf(buf, "%02d", Scen.Scenario);
                 memcpy(&scenarioname[3], buf, 2);
@@ -1193,7 +1184,7 @@ void Do_Lose(void)
                 Session.CurGame = MAX_MULTI_GAMES - 1;
             }
         }
-        GameActive = false;
+        GameActive = 0;
         Show_Mouse();
         return;
     }
@@ -1227,7 +1218,7 @@ void Do_Lose(void)
         Map.Render();
     } else {
         Hide_Mouse();
-        GameActive = false;
+        GameActive = 0;
     }
 
     GamePalette.Set(FADE_PALETTE_FAST, Call_Back);
@@ -1287,7 +1278,7 @@ void Do_Draw(void)
             Session.CurGame = MAX_MULTI_GAMES - 1;
         }
     }
-    GameActive = false;
+    GameActive = 0;
     Show_Mouse();
 }
 #endif
@@ -1423,7 +1414,6 @@ int BGMessageBox(char const* msg, int btn1, int btn2)
     const char* b3txt = "MORE";
 #endif
 #endif
-    bool dosmode = (RESFACTOR == 1);
 
     const void* briefsnd = MFCD::Retrieve("BRIEFING.AUD");
 
@@ -1582,9 +1572,9 @@ int BGMessageBox(char const* msg, int btn1, int btn2)
     Hide_Mouse();
 
     PaletteClass temp;
-    const char* filename = (dosmode) ? "SOVPAPER.CPS" : "SOVPAPER.PCX";
+    char* filename = "SOVPAPER.PCX";
     if (PlayerPtr->Class->House != HOUSE_USSR && PlayerPtr->Class->House != HOUSE_UKRAINE) {
-        filename = (dosmode) ? "ALIPAPER.CPS" : "ALIPAPER.PCX";
+        filename = "ALIPAPER.PCX";
     }
     Load_Title_Screen(filename, &HidPage, (unsigned char*)temp.Get_Data());
     HidPage.Blit(SeenPage);
@@ -1640,7 +1630,7 @@ int BGMessageBox(char const* msg, int btn1, int btn2)
                 Call_Back();
             } while (!Keyboard->Check() && cd);
         }
-        Frame_Limiter(FL_NO_BLOCK);
+        Frame_Limiter();
     } while (buffer[++bufindex]);
 
     Show_Mouse();
@@ -2070,19 +2060,27 @@ bool Read_Scenario_INI(char* fname, bool)
             ** all CDs.
             */
             if (Session.Type != GAME_NORMAL) {
+#ifdef FIXIT_CSII                //	checked - ajw 9/28/98
                 RequiredCD = -1; // default that any CD will do.
                                  // If it's a counterstrike mission, require the counterstrike CD, unless the
                                  // Aftermath CD is already in the drive, in which case, leave it there.
                                  // Note, this works because this section only tests for multiplayer scenarios.
                 if (Is_Mission_Counterstrike(Scen.ScenarioName)) {
                     RequiredCD = 2;
-                    if (Is_Aftermath_Installed()) {
+                    if (Is_Aftermath_Installed() || Get_CD_Index(CCFileClass::Get_CD_Drive(), 1 * 60) == 3) {
                         RequiredCD = 3;
                     }
                 }
                 if (Is_Mission_Aftermath(Scen.ScenarioName)) {
                     RequiredCD = 3;
                 }
+#else
+                if (Scen.Scenario > 24) {
+                    RequiredCD = 2;
+                } else {
+                    RequiredCD = -1;
+                }
+#endif
             } else {
 
                 /*
@@ -2116,7 +2114,19 @@ bool Read_Scenario_INI(char* fname, bool)
                 }
             }
         }
+#ifdef FIXIT_CSII
+        // checked - ajw 9/28/98
+        // If we're asking for a CD swap, check to see if we need to set the palette
+        // to avoid a black screen.  If this is a normal RA game, and the CD being
+        // requested is an RA CD, then don't set the palette, leave the map screen up.
 
+        if (Get_CD_Index(CCFileClass::Get_CD_Drive(), 1 * 60) != RequiredCD) {
+            if ((RequiredCD == 0 || RequiredCD == 1) && Session.Type == GAME_NORMAL) {
+                SeenPage.Clear();
+            }
+            GamePalette.Set(FADE_PALETTE_FAST, Call_Back);
+        }
+#endif
         if (!Force_CD_Available(RequiredCD)) {
             Prog_End("Read_Scenario_INI Force_CD_Available failed", true);
             if (!RunningAsDLL) { // PG
@@ -2273,7 +2283,7 @@ bool Read_Scenario_INI(char* fname, bool)
     len = strlen(buffer);
     for (int i = 0; i < len; i++) {
         val = (unsigned char)buffer[i];
-        Add_CRC(&ScenarioCRC, (unsigned int)val);
+        Add_CRC(&ScenarioCRC, (unsigned long)val);
     }
 #endif
 
@@ -2307,7 +2317,6 @@ bool Read_Scenario_INI(char* fname, bool)
     Scen.IsTruckCrate = ini.Get_Bool(BASIC, "TruckCrate", Scen.IsTruckCrate);
     Scen.IsMoneyTiberium = ini.Get_Bool(BASIC, "FillSilos", Scen.IsMoneyTiberium);
     Scen.Percent = ini.Get_Int(BASIC, "Percent", Scen.Percent);
-    Scen.EnableEvac = ini.Get_Bool(BASIC, "EnableEvac", Scen.EnableEvac);
 
     /*
     **	Read in the specific information for each of the house types.  This creates
@@ -2621,16 +2630,17 @@ bool Read_Scenario_INI(char* fname, bool)
         /*
         ** All this was originally done within Compute_Start_Pos.
         */
-        int start_x = 0;
-        int start_y = 0;
+        long start_x = 0;
+        long start_y = 0;
         Map.Compute_Start_Pos(start_x, start_y);
         for (int i = 0; i < ARRAY_SIZE(Scen.Views); ++i) {
             Scen.Views[i] = XY_Cell(start_x, start_y);
         }
         Scen.Waypoint[98] = XY_Cell(start_x, start_y);
-        COORDINATE pos = Cell_Coord(XY_Cell(start_x, start_y));
+
+		COORDINATE pos = Cell_Coord(XY_Cell(start_x, start_y));
         Map.Set_Tactical_Position(pos);
-        Map.Center_Map(pos);
+		Map.Center_Map(pos);
 #endif
     }
 
@@ -2641,15 +2651,9 @@ bool Read_Scenario_INI(char* fname, bool)
     */
 #ifdef FIXIT_CSII //	checked - ajw 9/28/98 - Added runtime check.
     if (Is_Aftermath_Installed()) {
-#ifdef REMASTER_BUILD
         if (Session.Type == GAME_SKIRMISH || Session.Type == GAME_GLYPHX_MULTIPLAYER) {
             bAftermathMultiplayer = NewUnitsEnabled = OverrideNewUnitsEnabled;
         }
-#else
-        if (Session.Type == GAME_SKIRMISH) {
-            bAftermathMultiplayer = NewUnitsEnabled = true;
-        }
-#endif
     }
 #endif
     ScenarioInit--;
@@ -2739,6 +2743,56 @@ void Write_Scenario_INI(char* fname)
     RawFileClass rawfile(fname);
     ini.Save(rawfile, true);
 #endif
+}
+
+extern bool LaunchedFromSpawner;
+
+void Assign_Houses_Spawner_Overrides() {
+	if (!LaunchedFromSpawner) {
+		return;
+	}
+
+	HousesType house;
+	HouseClass *housep;
+
+	Debug_Unshroud = true;
+
+	for (int i = 0; i < Session.Players.Count() + Session.Options.AIPlayers; i++) {
+		house = (HousesType)(i + HOUSE_MULTI1);
+		housep = HouseClass::As_Pointer(house);
+
+		if (Session.HouseColorOverrides[i] != -1) {
+			housep->RemapColor = Session.HouseColorOverrides[i];
+		}
+
+		if (Session.HouseCountryOverrides[i] != -1) {
+			housep->ActLike = Session.HouseCountryOverrides[i];
+		}
+
+		if (Session.HouseHandicapOverrides[i] < 3) {
+			housep->Assign_Handicap(Session.HouseHandicapOverrides[i]);
+		}
+
+		if (Session.SpawnLocationOverrides[i] != -1) {
+			housep->StartLocationOverride = Session.SpawnLocationOverrides[i];
+		}
+
+		if (Session.SpectatorHouses[i] == true) {
+			housep->IsDefeated = true;
+			housep->IsSpectator = true;
+			if (housep == PlayerPtr) {
+				Debug_Unshroud = true;
+				Session.ObiWan = 1;
+			}
+		}
+
+		for (int j = 0; j < 32; j++) {
+			int bits = Session.HouseAlliances[i];
+			if (bits >> j & 1) {
+				housep->Make_Ally((HousesType)j);
+			}
+		}
+	}
 }
 
 /***********************************************************************************************
@@ -2866,7 +2920,7 @@ void Assign_Houses(void)
         //.....................................................................
         // Pick a color for this house; keep looping until we find one.
         //.....................................................................
-        while (true) {
+        while (1) {
             color = Random_Pick(0, 7);
             if (color_used[color] == false) {
                 break;
@@ -2909,7 +2963,12 @@ void Assign_Houses(void)
             housep->IsDefeated = true;
         }
     }
+
+	Assign_Houses_Spawner_Overrides();
+
 }
+
+
 
 /***********************************************************************************************
  * Remove_AI_Players -- Removes the computer AI houses & their units                           *
@@ -3006,280 +3065,279 @@ static void Reserve_Unit()
 
 static void Create_Units(bool official)
 {
-    static struct
-    {
-        int MinLevel;
-        UnitType AllyType[2];
-        UnitType SovietType[2];
-    } utable[] = {{4, {UNIT_MTANK2, UNIT_LTANK}, {UNIT_MTANK, UNIT_NONE}},
-                  {5, {UNIT_APC, UNIT_NONE}, {UNIT_V2_LAUNCHER, UNIT_NONE}},
-                  {8, {UNIT_ARTY, UNIT_JEEP}, {UNIT_MTANK, UNIT_NONE}},
-                  {10, {UNIT_MTANK2, UNIT_MTANK2}, {UNIT_HTANK, UNIT_NONE}}};
-    static int num_units[ARRAY_SIZE(utable)]; // # of each type of unit to create
-    int tot_units;                            // total # units to create
+	static struct
+	{
+		int MinLevel;
+		UnitType AllyType[2];
+		UnitType SovietType[2];
+	} utable[] = { {4, {UNIT_MTANK2, UNIT_LTANK}, {UNIT_MTANK, UNIT_NONE}},
+				  {5, {UNIT_APC, UNIT_NONE}, {UNIT_V2_LAUNCHER, UNIT_NONE}},
+				  {8, {UNIT_ARTY, UNIT_JEEP}, {UNIT_MTANK, UNIT_NONE}},
+				  {10, {UNIT_MTANK2, UNIT_MTANK2}, {UNIT_HTANK, UNIT_NONE}} };
+	static int num_units[ARRAY_SIZE(utable)]; // # of each type of unit to create
+	int tot_units;                            // total # units to create
 
-    static struct
-    {
-        int MinLevel;
-        int AllyCount;
-        InfantryType AllyType;
-        int SovietCount;
-        InfantryType SovietType;
-    } itable[] = {
-        {0, 1, INFANTRY_E1, 1, INFANTRY_E1}, {2, 1, INFANTRY_E3, 1, INFANTRY_E2}, {4, 1, INFANTRY_E3, 1, INFANTRY_E4},
+	static struct
+	{
+		int MinLevel;
+		int AllyCount;
+		InfantryType AllyType;
+		int SovietCount;
+		InfantryType SovietType;
+	} itable[] = {
+		{0, 1, INFANTRY_E1, 1, INFANTRY_E1}, {2, 1, INFANTRY_E3, 1, INFANTRY_E2}, {4, 1, INFANTRY_E3, 1, INFANTRY_E4},
 
-        // removed because of bug B478 (inappropriate infantry given in a bases off scenario).
-        //		{5,	1,INFANTRY_RENOVATOR,	1,INFANTRY_RENOVATOR},
-        //		{6,	1,INFANTRY_SPY,			1,INFANTRY_DOG},
-        //		{10,	1,INFANTRY_THIEF,			1,INFANTRY_DOG},
-        //		{12,	1,INFANTRY_MEDIC,			2,INFANTRY_DOG}
-    };
-    static int num_infantry[ARRAY_SIZE(itable)]; // # of each type of infantry to create
-    int tot_infantry;                            // total # infantry to create
+		// removed because of bug B478 (inappropriate infantry given in a bases off scenario).
+		//		{5,	1,INFANTRY_RENOVATOR,	1,INFANTRY_RENOVATOR},
+		//		{6,	1,INFANTRY_SPY,			1,INFANTRY_DOG},
+		//		{10,	1,INFANTRY_THIEF,			1,INFANTRY_DOG},
+		//		{12,	1,INFANTRY_MEDIC,			2,INFANTRY_DOG}
+	};
+	static int num_infantry[ARRAY_SIZE(itable)]; // # of each type of infantry to create
+	int tot_infantry;                            // total # infantry to create
 
-    CELL centroid; // centroid of this house's stuff
-    CELL centerpt; // centroid for a category of objects, as a CELL
+	CELL centroid; // centroid of this house's stuff
+	CELL centerpt; // centroid for a category of objects, as a CELL
 
-    int u_limit = 0;  // last allowable index of units for this BuildLevel
-    int i_limit = 0;  // last allowable index of infantry for this BuildLevel
-    TechnoClass* obj; // newly-created object
-    int i, j, k;      // loop counters
-    int scaleval;     // value to scale # units or infantry
+	int u_limit = 0;  // last allowable index of units for this BuildLevel
+	int i_limit = 0;  // last allowable index of infantry for this BuildLevel
+	TechnoClass* obj; // newly-created object
+	int i, j, k;      // loop counters
+	int scaleval;     // value to scale # units or infantry
 
-    ReserveInfantryIndex = ReserveUnitIndex = 0;
+	ReserveInfantryIndex = ReserveUnitIndex = 0;
 
-    /*
-    **	For the current BuildLevel, find the max allowable index into the tables
-    */
-    for (i = 0; i < ARRAY_SIZE(utable); i++) {
-        if (PlayerPtr->Control.TechLevel >= utable[i].MinLevel) {
-            u_limit = i + 1;
-        }
-    }
-    for (i = 0; i < ARRAY_SIZE(itable); i++) {
-        if (PlayerPtr->Control.TechLevel >= itable[i].MinLevel) {
-            i_limit = i + 1;
-        }
-    }
+	/*
+	**	For the current BuildLevel, find the max allowable index into the tables
+	*/
+	for (i = 0; i < ARRAY_SIZE(utable); i++) {
+		if (PlayerPtr->Control.TechLevel >= utable[i].MinLevel) {
+			u_limit = i + 1;
+		}
+	}
+	for (i = 0; i < ARRAY_SIZE(itable); i++) {
+		if (PlayerPtr->Control.TechLevel >= itable[i].MinLevel) {
+			i_limit = i + 1;
+		}
+	}
 
-    /*
-    **	Compute how many of each buildable category to create
-    */
-    /*
-    **	Compute allowed # units
-    */
-    tot_units = (Session.Options.UnitCount * 2) / 3;
-    if (u_limit == 0)
-        tot_units = 0;
+	/*
+	**	Compute how many of each buildable category to create
+	*/
+	/*
+	**	Compute allowed # units
+	*/
+	tot_units = (Session.Options.UnitCount * 2) / 3;
+	if (u_limit == 0)
+		tot_units = 0;
 
-    /*
-    **	Init # of each category to 0
-    */
-    for (i = 0; i < u_limit; i++) {
-        num_units[i] = 0;
-    }
+	/*
+	**	Init # of each category to 0
+	*/
+	for (i = 0; i < u_limit; i++) {
+		num_units[i] = 0;
+	}
 
-    /*
-    **	Increment # of each category, until we've used up all units
-    */
-    j = 0;
-    for (i = 0; i < tot_units; i++) {
-        num_units[j]++;
-        j++;
-        if (j >= u_limit) {
-            j = 0;
-        }
-    }
+	/*
+	**	Increment # of each category, until we've used up all units
+	*/
+	j = 0;
+	for (i = 0; i < tot_units; i++) {
+		num_units[j]++;
+		j++;
+		if (j >= u_limit) {
+			j = 0;
+		}
+	}
 
-    /*
-    **	Compute allowed # infantry
-    */
-    tot_infantry = Session.Options.UnitCount - tot_units;
+	/*
+	**	Compute allowed # infantry
+	*/
+	tot_infantry = Session.Options.UnitCount - tot_units;
 
-    /*
-    **	Init # of each category to 0
-    */
-    for (i = 0; i < i_limit; i++) {
-        num_infantry[i] = 0;
-    }
+	/*
+	**	Init # of each category to 0
+	*/
+	for (i = 0; i < i_limit; i++) {
+		num_infantry[i] = 0;
+	}
 
-    /*
-    **	Increment # of each category, until we've used up all infantry
-    */
-    j = 0;
-    for (i = 0; i < tot_infantry; i++) {
-        num_infantry[j]++;
-        j++;
-        if (j >= i_limit) {
-            j = 0;
-        }
-    }
+	/*
+	**	Increment # of each category, until we've used up all infantry
+	*/
+	j = 0;
+	for (i = 0; i < tot_infantry; i++) {
+		num_infantry[j]++;
+		j++;
+		if (j >= i_limit) {
+			j = 0;
+		}
+	}
 
-    /*
-    **	Build a list of the valid waypoints. This normally shouldn't be
-    **	necessary because the scenario level designer should have assigned
-    **	valid locations to the first N waypoints, but just in case, this
-    **	loop verifies that.
-    */
+	/*
+	**	Build a list of the valid waypoints. This normally shouldn't be
+	**	necessary because the scenario level designer should have assigned
+	**	valid locations to the first N waypoints, but just in case, this
+	**	loop verifies that.
+	*/
 
-#ifdef REMASTER_BUILD
-    const unsigned int MAX_STORED_WAYPOINTS = 26;
-#else
-    const unsigned int MAX_STORED_WAYPOINTS = 8;
-#endif
+	const unsigned int MAX_STORED_WAYPOINTS = 26;
 
-    bool taken[MAX_STORED_WAYPOINTS];
-    CELL waypts[MAX_STORED_WAYPOINTS];
-    assert(Rule.MaxPlayers <= ARRAY_SIZE(waypts));
-    int num_waypts = 0;
+	bool taken[MAX_STORED_WAYPOINTS];
+	CELL waypts[MAX_STORED_WAYPOINTS];
+	assert(Rule.MaxPlayers < ARRAY_SIZE(waypts));
+	int num_waypts = 0;
 
-    /*
-    **	Calculate the number of waypoints (as a minimum) that will be lifted from the
-    **	mission file. Bias this number so that only the first 4 waypoints are used
-    **	if there are 4 or fewer players. Unofficial maps will pick from all the
-    **	available waypoints.
-    */
+	/*
+	**	Calculate the number of waypoints (as a minimum) that will be lifted from the
+	**	mission file. Bias this number so that only the first 4 waypoints are used
+	**	if there are 4 or fewer players. Unofficial maps will pick from all the
+	**	available waypoints.
+	*/
 #ifndef USE_GLYPHX_START_LOCATIONS
-    int look_for = max(4, Session.Players.Count() + Session.Options.AIPlayers);
-    if (!official) {
-        look_for = 8;
-    }
+	int look_for = max(4, Session.Players.Count() + Session.Options.AIPlayers);
+	if (!official) {
+		look_for = 8;
+	}
 #else
-    /*
-    ** We allow the users to choose from all available start positions, even on official maps. ST - 1/15/2020 9:19AM
-    */
-    int look_for = Session.Players.Count();
+	/*
+	** We allow the users to choose from all available start positions, even on official maps. ST - 1/15/2020 9:19AM
+	*/
+	int look_for = Session.Players.Count();
 #endif
 
+	for (int waycount = 0; waycount < 26; waycount++) {
+		//	for (int waycount = 0; waycount < max(4, Session.Players.Count()+Session.Options.AIPlayers); waycount++) {
+		if (Scen.Waypoint[waycount] != -1) {
+			waypts[num_waypts] = Scen.Waypoint[waycount];
+			taken[num_waypts] = false;
+			num_waypts++;
+
+			if (num_waypts >= MAX_STORED_WAYPOINTS) {
+				break;
+			}
+		}
+	}
+
+	/*
+	**	If there are insufficient waypoints to account for all players, then randomly assign
+	**	starting points until there is enough.
+	*/
+	int deficiency = look_for - num_waypts;
+	//	int deficiency = (Session.Players.Count() + Session.Options.AIPlayers) - num_waypts;
+	if (deficiency > 0) {
+		for (int index = 0; index < deficiency; index++) {
+			CELL trycell = XY_Cell(Map.MapCellX + Random_Pick(0, Map.MapCellWidth - 1),
+				Map.MapCellY + Random_Pick(0, Map.MapCellHeight - 1));
+
+			trycell = Map.Nearby_Location(trycell, SPEED_TRACK);
+			waypts[num_waypts] = trycell;
+			taken[num_waypts] = false;
+			num_waypts++;
+		}
+	}
+
+	/*
+	**	Loop through all houses.  Computer-controlled houses, with Session.Options.Bases
+	**	ON, are treated as though bases are OFF (since we have no base-building
+	**	AI logic.)
+	*/
+	int numtaken = 0;
+	for (HousesType house = HOUSE_MULTI1; house < (HOUSE_MULTI1 + Session.MaxPlayers); house++) {
+
+		/*
+		**	Get a pointer to this house; if there is none, go to the next house
+		*/
+		HouseClass* hptr = HouseClass::As_Pointer(house);
+		if (hptr == NULL || hptr->IsSpectator) {
+			continue;
+		}
+
+		/*
+		**	Pick the starting location for this house. The first house just picks
+		**	one of the valid locations at random. The other houses pick the furthest
+		**	wapoint from the existing houses.
+		*/
+
+		if (hptr->StartLocationOverride != -1) {
+			centroid = waypts[hptr->StartLocationOverride];
+		}
+		else {
 #ifdef REMASTER_BUILD
-    for (int waycount = 0; waycount < 26; waycount++) {
-#else
-    // This is needed for original game behavior, for example in original game you only spawn at corner spawns
-    // in 1vs1 on A Path Beyond as the corner spawns are the first 4, with the remaster logic you also spawn at
-    // the other 4 spawns in 1vs1 randomly
-    for (int waycount = 0; waycount < max(4, Session.Players.Count() + Session.Options.AIPlayers); waycount++) {
+			if (!UseGlyphXStartLocations) {
 #endif
-        if (Scen.Waypoint[waycount] != -1) {
-            waypts[num_waypts] = Scen.Waypoint[waycount];
-            taken[num_waypts] = false;
-            num_waypts++;
+				if (numtaken == 0) {
+					int pick = Random_Pick(0, num_waypts - 1);
+					centroid = waypts[pick];
+					hptr->StartLocationOverride = pick;
+					taken[pick] = true;
+					numtaken++;
+				}
+				else {
 
-            if (num_waypts >= MAX_STORED_WAYPOINTS) {
-                break;
-            }
-        }
-    }
+					/*
+					**	Set all waypoints to have a score of zero in preparation for giving
+					**	a distance score to all waypoints.
+					*/
+					int score[26];
+					memset(score, '\0', sizeof(score));
 
-    /*
-    **	If there are insufficient waypoints to account for all players, then randomly assign
-    **	starting points until there is enough.
-    */
-    int deficiency = look_for - num_waypts;
-    //	int deficiency = (Session.Players.Count() + Session.Options.AIPlayers) - num_waypts;
-    if (deficiency > 0) {
-        for (int index = 0; index < deficiency; index++) {
-            CELL trycell = XY_Cell(Map.MapCellX + Random_Pick(0, Map.MapCellWidth - 1),
-                                   Map.MapCellY + Random_Pick(0, Map.MapCellHeight - 1));
+					/*
+					**	Scan through all waypoints and give a score as a value of the sum
+					**	of the distances from this waypoint to all taken waypoints.
+					*/
+					for (int index = 0; index < num_waypts; index++) {
 
-            trycell = Map.Nearby_Location(trycell, SPEED_TRACK);
-            waypts[num_waypts] = trycell;
-            taken[num_waypts] = false;
-            num_waypts++;
-        }
-    }
+						/*
+						**	If this waypoint has not already been taken, then accumulate the
+						**	sum of the distance between this waypoint and all other taken
+						**	waypoints.
+						*/
+						if (!taken[index]) {
+							for (int trypoint = 0; trypoint < num_waypts; trypoint++) {
 
-    /*
-    **	Loop through all houses.  Computer-controlled houses, with Session.Options.Bases
-    **	ON, are treated as though bases are OFF (since we have no base-building
-    **	AI logic.)
-    */
-    int numtaken = 0;
-    for (HousesType house = HOUSE_MULTI1; house < (HOUSE_MULTI1 + Session.MaxPlayers); house++) {
+								if (taken[trypoint]) {
+									score[index] += Distance(Cell_Coord(waypts[index]), Cell_Coord(waypts[trypoint]));
+								}
+							}
+						}
+					}
 
-        /*
-        **	Get a pointer to this house; if there is none, go to the next house
-        */
-        HouseClass* hptr = HouseClass::As_Pointer(house);
-        if (hptr == NULL) {
-            continue;
-        }
+					/*
+					**	Now find the waypoint with the largest score. This waypoint is the one
+					**	that is furthest from all other taken waypoints.
+					*/
+					int best = 0;
+					int bestvalue = 0;
+					for (int searchindex = 0; searchindex < num_waypts; searchindex++) {
+						if (score[searchindex] > bestvalue || bestvalue == 0) {
+							bestvalue = score[searchindex];
+							best = searchindex;
+						}
+					}
 
-        /*
-        **	Pick the starting location for this house. The first house just picks
-        **	one of the valid locations at random. The other houses pick the furthest
-        **	wapoint from the existing houses.
-        */
+					/*
+					**	Assign this best position to the house.
+					*/
+					centroid = waypts[best];
+					hptr->StartLocationOverride = best;
+					taken[best] = true;
+					numtaken++;
+				}
 #ifdef REMASTER_BUILD
-        if (!UseGlyphXStartLocations) {
+			}
+			else {
+
+				/*
+				** New code that respects the start locations passed in from GlyphX.
+				**
+				** ST - 1/8/2020 3:39PM
+				*/
+				centroid = waypts[hptr->StartLocationOverride];
+			}
+		
 #endif
-            if (numtaken == 0) {
-                int pick = Random_Pick(0, num_waypts - 1);
-                centroid = waypts[pick];
-                hptr->StartLocationOverride = pick;
-                taken[pick] = true;
-                numtaken++;
-            } else {
-
-                /*
-                **	Set all waypoints to have a score of zero in preparation for giving
-                **	a distance score to all waypoints.
-                */
-                int score[26];
-                memset(score, '\0', sizeof(score));
-
-                /*
-                **	Scan through all waypoints and give a score as a value of the sum
-                **	of the distances from this waypoint to all taken waypoints.
-                */
-                for (int index = 0; index < num_waypts; index++) {
-
-                    /*
-                    **	If this waypoint has not already been taken, then accumulate the
-                    **	sum of the distance between this waypoint and all other taken
-                    **	waypoints.
-                    */
-                    if (!taken[index]) {
-                        for (int trypoint = 0; trypoint < num_waypts; trypoint++) {
-
-                            if (taken[trypoint]) {
-                                score[index] += Distance(Cell_Coord(waypts[index]), Cell_Coord(waypts[trypoint]));
-                            }
-                        }
-                    }
-                }
-
-                /*
-                **	Now find the waypoint with the largest score. This waypoint is the one
-                **	that is furthest from all other taken waypoints.
-                */
-                int best = 0;
-                int bestvalue = 0;
-                for (int searchindex = 0; searchindex < num_waypts; searchindex++) {
-                    if (score[searchindex] > bestvalue || bestvalue == 0) {
-                        bestvalue = score[searchindex];
-                        best = searchindex;
-                    }
-                }
-
-                /*
-                **	Assign this best position to the house.
-                */
-                centroid = waypts[best];
-                hptr->StartLocationOverride = best;
-                taken[best] = true;
-                numtaken++;
-            }
-#ifdef REMASTER_BUILD
-        } else {
-
-            /*
-            ** New code that respects the start locations passed in from GlyphX.
-            **
-            ** ST - 1/8/2020 3:39PM
-            */
-            centroid = waypts[hptr->StartLocationOverride];
-        }
-#endif
+		}
         /*
         **	Assign the center of this house to the waypoint location.
         */
@@ -3315,17 +3373,18 @@ static void Create_Units(bool official)
         } else {
 
             /*
-            **	If bases are OFF, set 'scaleval' to 1 & create a Truck for
+            **	If bases are OFF, set 'scaleval' to 1 & create a Mobile HQ for
             **	capture-the-flag mode.
             */
             scaleval = 1;
-
+#ifdef TOFIX
             if (Special.IsCaptureTheFlag) {
                 obj = new UnitClass(UNIT_TRUCK, house);
                 obj->Unlimbo(Cell_Coord(centroid), DIR_N);
                 hptr->FlagHome = 0; // turn house's flag off
                 hptr->FlagLocation = 0;
             }
+#endif
         }
 
         /*

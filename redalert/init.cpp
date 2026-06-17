@@ -57,24 +57,35 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 #include "function.h"
-#include "language.h"
-#include "msgbox.h"
 #include "loaddlg.h"
-
-#ifdef NETWORKING
+#ifdef WIN32
 #include "wsproto.h"
 #include "wspudp.h"
 #include "internet.h"
+
+#endif
+#include "wspudp.h"
+#include <conio.h>
+#include <dos.h>
+#ifndef WIN32
+#include <sys\timeb.h>
 #endif
 
 #include <time.h>
 
-#include "ramfile.h"
+#ifdef DONGLE
+#include "cbn_.h"
+#endif
+
+#ifdef MPEGMOVIE // Denzil 6/25/98
+#include "mpgset.h"
+#endif
+
 #include "common/vqaconfig.h"
-#include "common/winasm.h"
-#include "intro.h"
 
 RemapControlType SidebarScheme;
+
+//#include "WolDebug.h"
 
 #ifdef CHEAT_KEYS
 extern bool bNoMovies;
@@ -100,7 +111,15 @@ static void Init_Keys(void);
 
 extern int UnitBuildPenalty;
 
-extern unsigned int RandNumb;
+
+extern "C" {
+}
+#ifndef WIN32
+static int UsePageFaultHandler = 1; // 1 = install PFH
+#endif                              // WIN32
+
+extern unsigned long RandNumb;
+
 
 // extern int SimRandIndex;
 void Init_Random(void);
@@ -135,13 +154,19 @@ extern bool Is_Mission_Counterstrike(char* file_name);
  *=============================================================================================*/
 static void Load_Prolog_Page(void)
 {
-    const char* pict = (RESFACTOR == 1) ? "PROLOG.CPS" : "PROLOG.PCX";
     Hide_Mouse();
-    Load_Title_Screen(pict, &HidPage, (unsigned char*)CCPalette.Get_Data());
+#ifdef WIN32
+    Load_Title_Screen("PROLOG.PCX", &HidPage, (unsigned char*)CCPalette.Get_Data());
     HidPage.Blit(SeenPage);
+#else
+    Load_Picture("PROLOG.CPS", HidPage, HidPage, CCPalette, BM_DEFAULT);
+    HidPage.Blit(SeenPage);
+#endif
     CCPalette.Set();
     Show_Mouse();
 }
+
+bool Read_Spawner_Game_Options_And_Launch_Match();
 
 /***********************************************************************************************
  * Init_Game -- Main game initialization routine.                                              *
@@ -163,7 +188,6 @@ static void Load_Prolog_Page(void)
 //#include    <locale.h>
 bool Init_Game(int, char*[])
 {
-    bool dosmode = (RESFACTOR == 1);
 /*
 **	Allocate the benchmark tracking objects only if the machine and
 **	compile flags indicate.
@@ -304,12 +328,14 @@ bool Init_Game(int, char*[])
     */
     Anim_Init();
 
-    /*
-    **>-Initialize the interpolation table
-    */
-    if (!dosmode) {
-        InterpolationTable = new struct InterpolationTable();
+#ifdef MPEGMOVIE // Denzil 6/15/98
+    if (Using_DVD()) {
+#ifdef MCIMPEG
+        MciMovie = new MCIMovie(MainWindow);
+#endif
+        MpgSettings = new MPGSettings(NULL); // RawFileClass(CONFIG_FILE_NAME));
     }
+#endif
 
     /*
     **	Play the startup animation.
@@ -349,8 +375,8 @@ bool Init_Game(int, char*[])
 
         Hide_Mouse();
         Fancy_Text_Print(TXT_STAND_BY,
-                         160 * RESFACTOR,
-                         120 * RESFACTOR,
+                         (160 * RESFACTOR) + HIRES_ADJ_W,
+                         (120 * RESFACTOR) + HIRES_ADJ_H,
                          &ColorRemaps[PCOLOR_DIALOG_BLUE],
                          TBLACK,
                          TPF_CENTER | TPF_TEXT | TPF_DROPSHADOW);
@@ -413,6 +439,11 @@ bool Init_Game(int, char*[])
     return (true);
 }
 
+extern bool Get_Broadcast_Addresses(void);
+
+bool SpawnerActive;
+bool LaunchedFromSpawner;
+
 /***********************************************************************************************
  * Select_Game -- The game's main menu                                                         *
  *                                                                                             *
@@ -445,15 +476,18 @@ bool Select_Game(bool fade)
         SEL_FAME,             // view the hall o' fame
         SEL_NONE,             // placeholder default value
     };
-#else                //	FIXIT_VERSION_3
+#else                                        //	FIXIT_VERSION_3
     enum
     {
         SEL_TIMEOUT = -1,   // main menu timeout--go into attract mode
         SEL_NEW_SCENARIO,   // Expansion scenario to play.
         SEL_START_NEW_GAME, // start a new game
-#ifndef INTERNET_OFF // Denzil 5/1/98 - Internet play
+#if defined(WIN32) && !defined(INTERNET_OFF) // Denzil 5/1/98 - Internet play
         SEL_INTERNET,
-#endif
+#endif                                       // WIN32
+        //#if defined(MPEGMOVIE) // Denzil 6/25/98
+        //		SEL_MOVIESETTINGS,
+        //#endif
         SEL_LOAD_MISSION,     // load a saved game
         SEL_MULTIPLAYER_GAME, // play modem/null-modem/network game
         SEL_INTRO,            // couch-potato mode
@@ -461,12 +495,23 @@ bool Select_Game(bool fade)
         SEL_FAME,             // view the hall o' fame
         SEL_NONE,             // placeholder default value
     };
-#endif //	FIXIT_VERSION_3
+#endif                                       //	FIXIT_VERSION_3
+
+
 
     bool gameloaded = false; // Has the game been loaded from the menu?
     int selection;           // the default selection
     bool process = true;     // false = break out of while loop
     bool display = true;
+
+#ifdef DONGLE
+    /* These where added by ColinM for the dongle checking */
+    short iRet = 0;
+    unsigned short iPortNr = 1; /* automatic port scan enabled */
+    unsigned char cSCodeSER[] = "\x41\x42";
+    unsigned long ulIdRet = 0;
+    unsigned char cBoxName[] = "\x00\x00";
+#endif
 
 #ifdef FIXIT_CSII //	checked - ajw 9/28/98
     int cdcheck = 0;
@@ -483,7 +528,7 @@ bool Select_Game(bool fade)
 
 #ifdef FIXIT_CSII //	checked - ajw 9/28/98
     NewUnitsEnabled = SecretUnitsEnabled =
-        false; // Assume new units disabled, unless specifically .INI enabled or multiplayer negotiations enable it.
+        0; // Assume new units disabled, unless specifically .INI enabled or multiplayer negotiations enable it.
 #endif
 
     /*
@@ -517,6 +562,21 @@ bool Select_Game(bool fade)
     NewMaxAheadFrame2 = 0;
 #endif
 
+/* ColinM added to check for dongle */
+#ifdef DONGLE
+    iRet = CbN_BoxReady(iPortNr, cBoxName);
+    if (cBoxName[0] != 0xc5 && cBoxName[0] != 0xc9) {
+        WWMessageBox().Process("Please ensure dongle is attached. Run the dongle batch file too.", TXT_OK);
+        Emergency_Exit(EXIT_FAILURE);
+    }
+
+    iRet = CbN_ReadSER(iPortNr, cSCodeSER, &ulIdRet);
+    if (ulIdRet != 0xa0095) {
+        WWMessageBox().Process("Please ensure dongle is attached. Run the dongle batch file too.", TXT_OK);
+        Emergency_Exit(EXIT_FAILURE);
+    }
+#endif
+
     /*
     **	Init multiplayer game scores.  Let Wins accumulate; just init the current
     ** Kills for this game.  Kills of -1 means this player didn't play this round.
@@ -529,6 +589,15 @@ bool Select_Game(bool fade)
     **	Set default mouse shape
     */
     Map.Set_Default_Mouse(MOUSE_NORMAL, false);
+
+	if (LaunchedFromSpawner) {
+		if (Read_Spawner_Game_Options_And_Launch_Match()) {
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
 
     /*
     **	If the last game we played was a multiplayer game, jump right to that
@@ -805,6 +874,14 @@ bool Select_Game(bool fade)
                 process = false;
                 break;
 
+                //				#if defined(MPEGMOVIE) // Denzil 6/25/98
+                //				case SEL_MOVIESETTINGS:
+                //					MpgSettings->Dialog();
+                //					display = true;
+                //					selection = SEL_NONE;
+                //				break;
+                //				#endif
+
             /*
             **	Load a saved game.
             */
@@ -947,11 +1024,11 @@ bool Select_Game(bool fade)
                     /*
                     ** Init network system & remote-connect
                     */
-#ifdef NETWORKING
                     if (PacketTransport)
                         delete PacketTransport;
-
+#ifdef NETWORKING
                     PacketTransport = new UDPInterfaceClass;
+#endif
                     assert(PacketTransport != NULL);
 
                     WWDebugString("RA95 - About to call Init_Network.\n");
@@ -964,15 +1041,12 @@ bool Select_Game(bool fade)
                         process = false;
                         Theme.Fade_Out();
                     } else { // user hit cancel, or init failed
-#endif
                         Session.Type = GAME_NORMAL;
                         display = true;
                         selection = SEL_NONE;
-#ifdef NETWORKING
                         delete PacketTransport;
                         PacketTransport = NULL;
                     }
-#endif
                     break;
                 }
                 break;
@@ -987,6 +1061,7 @@ bool Select_Game(bool fade)
                 } else {
                     Hide_Mouse();
                     VisiblePage.Clear();
+					HiddenPage.Clear();
                     Show_Mouse();
                     Play_Movie(VQ_INTRO_MOVIE, THEME_NONE, true); // no transition picture to briefing
                     Keyboard->Clear();
@@ -1116,8 +1191,13 @@ bool Select_Game(bool fade)
 
         if (selection != SEL_START_NEW_GAME) {
             BlackPalette.Set(FADE_PALETTE_MEDIUM, Call_Back);
+#ifdef WIN32
             HiddenPage.Clear();
             VisiblePage.Clear();
+#else
+            HidPage.Clear();
+            SeenPage.Clear();
+#endif // WIN32
         }
         Show_Mouse();
         // Mono_Printf("About to call Start Scenario with %s\n", Scen.ScenarioName);
@@ -1140,11 +1220,15 @@ bool Select_Game(bool fade)
                           MAX_MESSAGE_LENGTH - 14, // max msg length
                           7 * RESFACTOR,           // font height in pixels
                           -1,
-                          -1,                                   // x,y for edit line (appears above msgs)
-                          0,                                    // BG		1,							// enable edit overflow
-                          20,                                   // min,
-                          MAX_MESSAGE_LENGTH - 14,              //    max for trimming overflow
+                          -1,                      // x,y for edit line (appears above msgs)
+                          0,                       // BG		1,							// enable edit overflow
+                          20,                      // min,
+                          MAX_MESSAGE_LENGTH - 14, //    max for trimming overflow
+#ifdef WIN32
                           Lepton_To_Pixel(Map.TacLeptonWidth)); // Width in pixels of buffer
+#else
+                          (320 - SIDEBAR_WID)); // Width in pixels of buffer
+#endif
 
     if (Session.Type != GAME_NORMAL && Session.Type != GAME_SKIRMISH && !Session.Play) {
         Session.Create_Connections();
@@ -1167,18 +1251,24 @@ bool Select_Game(bool fade)
     Call_Back();
     Hide_Mouse();
     BlackPalette.Set(FADE_PALETTE_MEDIUM, Call_Back);
-    //	Fade_Palette_To(BlackPalette, FADE_PALETTE_MEDIUM, Call_Back);
+//	Fade_Palette_To(BlackPalette, FADE_PALETTE_MEDIUM, Call_Back);
+#ifdef WIN32
     HiddenPage.Clear();
     VisiblePage.Clear();
+#else
+    HidPage.Clear();
+    SeenPage.Clear();
+#endif // WIN32
     Show_Mouse();
-
     Set_Logic_Page(SeenBuff);
+#ifdef WIN32
     /*
     ** Sidebar is always active in hi-res.
     */
     if (!Debug_Map && !Options.ToggleSidebar) {
         Map.SidebarClass::Activate(1);
     }
+#endif // WIN32
     Map.Flag_To_Redraw();
     Call_Back();
     Map.Render();
@@ -1203,6 +1293,10 @@ bool Select_Game(bool fade)
  *=============================================================================================*/
 static void Play_Intro(bool sequenced)
 {
+	if (LaunchedFromSpawner) {
+		return;
+	}
+
     static VQType _counter = VQ_FIRST;
 
     Keyboard->Clear();
@@ -1222,12 +1316,14 @@ static void Play_Intro(bool sequenced)
 
         //		Show_Mouse();
     } else {
-        VQType intro = RESFACTOR == 1 ? VQ_TITLE : VQ_REDINTRO;
-
         Hide_Mouse();
         VisiblePage.Clear();
         Show_Mouse();
-        Play_Movie(intro, THEME_NONE, false);
+#ifdef WIN32
+        Play_Movie(VQ_REDINTRO, THEME_NONE, false);
+#else
+        Play_Movie(VQ_TITLE, THEME_NONE, false);
+#endif
     }
 }
 
@@ -1257,6 +1353,8 @@ GraphicBufferClass VQ640(640, 400, nullptr);
 void Anim_Init(void)
 {
 #ifndef REMASTER_BUILD
+#ifdef WIN32
+
     /* Configure player with INI file */
     VQA_DefaultConfig(&AnimControl);
     AnimControl.DrawFlags = VQACFGF_TOPLEFT;
@@ -1290,6 +1388,38 @@ void Anim_Init(void)
     if (MonoClass::Is_Enabled()) {
         AnimControl.OptionFlags |= VQAOPTF_MONO;
     }
+
+#else // WIN32
+    /* Configure player with INI file */
+    VQA_DefaultConfig(&AnimControl);
+    //	void const * font = Load_Font(FONT8);
+    //	AnimControl.EVAFont = (char *)font;
+    //	AnimControl.CapFont = (char *)font;
+    AnimControl.DrawerCallback = VQ_Call_Back;
+    AnimControl.ImageWidth = 320;
+    AnimControl.ImageHeight = 200;
+    AnimControl.Vmode = MCGA_MODE;
+    AnimControl.VBIBit = VertBlank;
+    AnimControl.DrawFlags |= VQACFGF_TOPLEFT;
+    AnimControl.OptionFlags |= VQAOPTF_HMIINIT | VQAOPTF_CAPTIONS | VQAOPTF_EVA;
+    //	AnimControl.AudioBuf = (unsigned char *)HidPage.Get_Buffer();
+    //	AnimControl.AudioBufSize = 32768U;
+    AnimControl.DigiCard = NewConfig.DigitCard;
+    AnimControl.HMIBufSize = 8192;
+    AnimControl.DigiHandle = Get_Digi_Handle();
+    AnimControl.Volume = 0x00FF;
+    AnimControl.AudioRate = 22050;
+    //	if (NewConfig.Speed) AnimControl.AudioRate = 11025;
+
+    if (!Debug_Quiet && Get_Digi_Handle() != -1) {
+        AnimControl.OptionFlags |= VQAOPTF_AUDIO;
+    }
+
+    if (MonoClass::Is_Enabled()) {
+        AnimControl.OptionFlags |= VQAOPTF_MONO;
+    }
+
+#endif // WIN32
 #endif
 }
 
@@ -1325,7 +1455,7 @@ bool Parse_Command_Line(int argc, char* argv[])
 
     for (int index = 1; index < argc; index++) {
         char* string; // Pointer to argument.
-        int code = 0;
+        long code = 0;
 
         char arg_string[512];
         int str_len = strlen(argv[index]);
@@ -1358,12 +1488,12 @@ bool Parse_Command_Line(int argc, char* argv[])
         }
 
         bool processed = true;
-        unsigned ob = unsigned(Obfuscate(string));
+        long ob = Obfuscate(string);
 
         /*
         **	Check to see if the parameter is a cheat enabling one.
         */
-        unsigned const* optr = &CheatCodes[0];
+        long const* optr = (const long*)&CheatCodes[0];
         while (*optr) {
             if (*optr++ == ob) {
                 Debug_Playtest = true;
@@ -1375,7 +1505,7 @@ bool Parse_Command_Line(int argc, char* argv[])
         /*
         **	Check to see if the parameter is a cheat enabling one.
         */
-        optr = &PlayCodes[0];
+        optr = (const long*)&PlayCodes[0];
         while (*optr) {
             if (*optr++ == ob) {
                 Debug_Playtest = true;
@@ -1388,7 +1518,7 @@ bool Parse_Command_Line(int argc, char* argv[])
         **	Check to see if the parameter is a scenario editor
         **	enabling one.
         */
-        optr = &EditorCodes[0];
+        optr = (const long*)&EditorCodes[0];
         while (*optr) {
             if (*optr++ == ob) {
                 Debug_Map = true;
@@ -1442,6 +1572,11 @@ bool Parse_Command_Line(int argc, char* argv[])
             continue;
         }
 
+		if (strstr(string, "-SPAWN")) {
+			LaunchedFromSpawner = true;
+			continue;
+		}
+
 #if (0)
         /*
         ** Build speed modifier
@@ -1452,6 +1587,57 @@ bool Parse_Command_Line(int argc, char* argv[])
             UnitBuildPenalty = unit_rate;
         }
 #endif //(0)
+
+        /*
+        **	Specify destination connection for network play
+        */
+        if (strstr(string, "-DESTNET")) {
+            NetNumType net;
+            NetNodeType node;
+
+            /*
+            ** Scan the command-line string, pulling off each address piece
+            */
+            int i = 0;
+            char* p = strtok(string + 8, ".");
+            while (p) {
+                int x;
+
+                sscanf(p, "%x", &x); // convert from hex string to int
+                if (i < 4) {
+                    net[i] = (char)x; // fill NetNum
+                } else {
+                    node[i - 4] = (char)x; // fill NetNode
+                }
+                i++;
+                p = strtok(NULL, ".");
+            }
+
+            /*
+            ** If all the address components were successfully read, fill in the
+            ** BridgeNet with a broadcast address to the network across the bridge.
+            */
+            if (i >= 4) {
+                Session.IsBridge = 1;
+                memset(node, 0xff, 6);
+                Session.BridgeNet = IPXAddressClass(net, node);
+            }
+            continue;
+        }
+
+        /*
+        **	Specify socket ID, as an offset from 0x4000.
+        */
+        if (strstr(string, "-SOCKET")) {
+            unsigned short socket;
+
+            socket = (unsigned short)(atoi(string + strlen("SOCKET")));
+            socket += 0x4000;
+            if (socket >= 0x4000 && socket < 0x8000) {
+                Ipx.Set_Socket(socket);
+            }
+            continue;
+        }
 
         /*
         **	Set the Net Stealth option
@@ -1477,6 +1663,16 @@ bool Parse_Command_Line(int argc, char* argv[])
             continue;
         }
 
+#ifdef WIN32
+        /*
+        ** Set screen to 640x480 instead of 640x400
+        */
+        if (strstr(string, "-480")) {
+            ScreenHeight = 480;
+            continue;
+        }
+#endif
+
 #ifdef CHEAT_KEYS
         /*
         **	Specify the random number seed (for debugging)
@@ -1485,6 +1681,17 @@ bool Parse_Command_Line(int argc, char* argv[])
             CustomSeed = (unsigned short)(atoi(string + strlen("SEED")));
             continue;
         }
+
+#ifndef WIN32
+        /*
+        **	Don't install Page Fault Handler (MUST use this for debugger)
+        */
+        if (stricmp(string, "-NOPFS") == 0) {
+            UsePageFaultHandler = 0;
+            continue;
+        }
+#endif
+
 #endif
 
 #ifdef NEVER
@@ -1534,14 +1741,6 @@ bool Parse_Command_Line(int argc, char* argv[])
                     break;
 
                 /*
-                **	Print lots of debug stuff about events & packets
-                */
-                case 'P':
-                    Debug_Print_Events = true;
-                    break;
-#endif
-
-                /*
                 **	"Record" a multi-player game
                 */
                 case 'X':
@@ -1554,6 +1753,14 @@ bool Parse_Command_Line(int argc, char* argv[])
                 case 'Y':
                     Session.Play = 1;
                     break;
+
+                /*
+                **	Print lots of debug stuff about events & packets
+                */
+                case 'P':
+                    Debug_Print_Events = true;
+                    break;
+#endif
 
                 /*
                 **	Quiet mode override control.
@@ -1603,7 +1810,7 @@ bool Parse_Command_Line(int argc, char* argv[])
  * HISTORY:                                                                                    *
  *   08/19/1995 JLB : Created.                                                                 *
  *=============================================================================================*/
-unsigned Obfuscate(char const* string)
+long Obfuscate(char const* string)
 {
     char buffer[1024];
 
@@ -1658,13 +1865,13 @@ unsigned Obfuscate(char const* string)
     **	Transform the buffer into a number. This transformation is character
     **	order dependant.
     */
-    int code = Calculate_CRC(buffer, length);
+    long code = Calculate_CRC(buffer, length);
 
     /*
     **	Record a copy of this initial transformation to be used in a later
     **	self referential transformation.
     */
-    int copy = code;
+    long copy = code;
 
     /*
     **	Reverse the character string and combine with the previous transformation.
@@ -1691,7 +1898,7 @@ unsigned Obfuscate(char const* string)
         unsigned char temp = (unsigned char)code;
         buffer[index] ^= temp;
         code >>= 8;
-        code |= (((int)temp) << 24);
+        code |= (((long)temp) << 24);
     }
 
     /*
@@ -1781,10 +1988,42 @@ unsigned Obfuscate(char const* string)
  *=========================================================================*/
 void Init_Random(void)
 {
+#ifdef WIN32
+
     /*
-    ** Initialize RNG with the current system time in seconds.
+    **	Gather some "random" bits from the system timer. Actually, only the
+    **	low order millisecond bits are secure. The other bits could be
+    **	easily guessed from the system clock (most clocks are fairly accurate
+    **	and thus predictable).
     */
-    CryptRandom.Seed_Long(time(NULL));
+    SYSTEMTIME t;
+    GetSystemTime(&t);
+    CryptRandom.Seed_Byte((char)t.wMilliseconds);
+    CryptRandom.Seed_Bit(t.wSecond);
+    CryptRandom.Seed_Bit(t.wSecond >> 1);
+    CryptRandom.Seed_Bit(t.wSecond >> 2);
+    CryptRandom.Seed_Bit(t.wSecond >> 3);
+    CryptRandom.Seed_Bit(t.wSecond >> 4);
+    CryptRandom.Seed_Bit(t.wMinute);
+    CryptRandom.Seed_Bit(t.wMinute >> 1);
+    CryptRandom.Seed_Bit(t.wMinute >> 2);
+    CryptRandom.Seed_Bit(t.wMinute >> 3);
+    CryptRandom.Seed_Bit(t.wMinute >> 4);
+    CryptRandom.Seed_Bit(t.wHour);
+    CryptRandom.Seed_Bit(t.wDay);
+    CryptRandom.Seed_Bit(t.wDayOfWeek);
+    CryptRandom.Seed_Bit(t.wMonth);
+    CryptRandom.Seed_Bit(t.wYear);
+#else
+
+    /*
+    **	Gather some "random" bits from the DOS mode timer.
+    */
+    struct timeb t;
+    ftime(&t);
+    CryptRandom.Seed_Byte(t.millitm);
+    CryptRandom.Seed_Byte(t.time);
+#endif
 
 #ifdef FIXIT_MULTI_SAVE
     //
@@ -1860,12 +2099,17 @@ void Init_Random(void)
  *=============================================================================================*/
 void Load_Title_Page(bool visible)
 {
-    const char* titlepict = RESFACTOR == 1 ? "TITLE.CPS" : "TITLE.PCX";
-
-    Load_Title_Screen((char*)titlepict, &HidPage, (unsigned char*)CCPalette.Get_Data());
+#ifdef WIN32
+    Load_Title_Screen("TITLE.PCX", &HidPage, (unsigned char*)CCPalette.Get_Data());
     if (visible) {
         HidPage.Blit(SeenPage);
     }
+#else
+    Load_Picture("TITLE.CPS", HidPage, HidPage, CCPalette, BM_DEFAULT);
+    if (visible) {
+        HidPage.Blit(SeenPage);
+    }
+#endif
 }
 
 /***********************************************************************************************
@@ -1894,10 +2138,14 @@ static void Init_Color_Remaps(void)
     ** after that are the remap colors.
     */
 
+#ifdef WIN32
     GraphicBufferClass temp_page(320, 200, (void*)NULL);
     temp_page.Clear();
     Load_Picture("PALETTE.CPS", temp_page, temp_page, NULL, BM_DEFAULT);
     temp_page.Blit(HidPage);
+#else
+    Load_Picture("PALETTE.CPS", HidPage, HidPage, NULL, BM_DEFAULT);
+#endif
     for (PlayerColorType pcolor = PCOLOR_FIRST; pcolor < PCOLOR_COUNT; pcolor++) {
 
         unsigned char* ptr = ColorRemaps[pcolor].RemapTable;
@@ -1932,36 +2180,40 @@ static void Init_Color_Remaps(void)
         ColorRemaps[pcolor].Box = HidPage.Get_Pixel(4, pcolor);
     }
 
+	
 #ifdef REMASTER_BUILD
-    /* 12/9/2019 SKY - Swap Blue and Grey color remaps */
-    {
-        RemapControlType temp;
-        memcpy(&temp, &ColorRemaps[PCOLOR_BLUE], sizeof(RemapControlType));
-        memcpy(&ColorRemaps[PCOLOR_BLUE], &ColorRemaps[PCOLOR_GREY], sizeof(RemapControlType));
-        memcpy(&ColorRemaps[PCOLOR_GREY], &temp, sizeof(RemapControlType));
-    }
+	/* 12/9/2019 SKY - Swap Blue and Grey color remaps */
+	/*
+	{
+		RemapControlType temp;
+		memcpy(&temp, &ColorRemaps[PCOLOR_BLUE], sizeof(RemapControlType));
+		memcpy(&ColorRemaps[PCOLOR_BLUE], &ColorRemaps[PCOLOR_GREY], sizeof(RemapControlType));
+		memcpy(&ColorRemaps[PCOLOR_GREY], &temp, sizeof(RemapControlType));
+	}
+	*/
 #endif
 
-    /*
-    ** Now do the special dim grey scheme
-    */
-    for (int color = 0; color < 256; color++) {
-        GreyScheme.RemapTable[color] = color;
-    }
-    for (int index = 0; index < 6; index++) {
-        GreyScheme.FontRemap[10 + index] = HidPage.Get_Pixel(9 + index, PCOLOR_GREY) & 0x00FF;
-    }
-    GreyScheme.BrightColor = HidPage.Get_Pixel(3, PCOLOR_GREY) & 0x00FF;
-    GreyScheme.Color = HidPage.Get_Pixel(7, PCOLOR_GREY) & 0x00FF;
+	/*
+** Now do the special dim grey scheme
+*/
+	for (int color = 0; color < 256; color++) {
+		GreyScheme.RemapTable[color] = color;
+	}
 
-    GreyScheme.Shadow = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(15, PCOLOR_GREY) & 0x00FF];
-    GreyScheme.Background = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(14, PCOLOR_GREY) & 0x00FF];
-    GreyScheme.Corners = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(13, PCOLOR_GREY) & 0x00FF];
-    GreyScheme.Highlight = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(9, PCOLOR_GREY) & 0x00FF];
-    GreyScheme.Bright = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(5, PCOLOR_GREY) & 0x00FF];
-    GreyScheme.Underline = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(5, PCOLOR_GREY) & 0x00FF];
-    GreyScheme.Bar = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(11, PCOLOR_GREY) & 0x00FF];
-    GreyScheme.Box = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(11, PCOLOR_GREY) & 0x00FF];
+	for (int index = 0; index < 6; index++) {
+		GreyScheme.FontRemap[10 + index] = HidPage.Get_Pixel(9 + index, PCOLOR_GREY) & 0x00FF;
+	}
+	GreyScheme.BrightColor = HidPage.Get_Pixel(3, PCOLOR_GREY) & 0x00FF;
+	GreyScheme.Color = HidPage.Get_Pixel(7, PCOLOR_GREY) & 0x00FF;
+
+	GreyScheme.Shadow = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(15, PCOLOR_GREY) & 0x00FF];
+	GreyScheme.Background = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(14, PCOLOR_GREY) & 0x00FF];
+	GreyScheme.Corners = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(13, PCOLOR_GREY) & 0x00FF];
+	GreyScheme.Highlight = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(9, PCOLOR_GREY) & 0x00FF];
+	GreyScheme.Bright = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(5, PCOLOR_GREY) & 0x00FF];
+	GreyScheme.Underline = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(5, PCOLOR_GREY) & 0x00FF];
+	GreyScheme.Bar = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(11, PCOLOR_GREY) & 0x00FF];
+	GreyScheme.Box = ColorRemaps[PCOLOR_GREY].RemapTable[HidPage.Get_Pixel(11, PCOLOR_GREY) & 0x00FF];
 
     /*
     ** Set up the metallic remap table for the font that prints over the tabs
@@ -2079,8 +2331,6 @@ static void Init_Expansion_Files(void)
     const char* path = ".\\";
     char search_path[_MAX_PATH];
     char scan_path[_MAX_PATH];
-    Find_File_Data* ffd;
-    bool found;
 
     for (int p = 0; p < 100; p++) {
 
@@ -2092,27 +2342,27 @@ static void Init_Expansion_Files(void)
         strcpy(scan_path, search_path);
         strcat(scan_path, "SC*.MIX");
 
-        found = Find_First(scan_path, 0, &ffd);
-        while (found) {
-            char* ptr = strdup(ffd->GetName());
-            new MFCD(ptr, &FastKey);
-            found = Find_Next(ffd);
-        }
-        if (ffd) {
-            Find_Close(ffd);
+        WIN32_FIND_DATA find_data;
+        memset(&find_data, 0, sizeof(find_data));
+        HANDLE file_handle = FindFirstFile(scan_path, &find_data);
+        if (file_handle != INVALID_HANDLE_VALUE) {
+            do {
+                char* ptr = strdup(find_data.cFileName);
+                new MFCD(ptr, &FastKey);
+            } while (FindNextFile(file_handle, &find_data));
+            FindClose(file_handle);
         }
 
+        memset(&find_data, 0, sizeof(find_data));
         strcpy(scan_path, search_path);
         strcat(scan_path, "Ss*.MIX");
-
-        found = Find_First(scan_path, 0, &ffd);
-        while (found) {
-            char* ptr = strdup(ffd->GetName());
-            new MFCD(ptr, &FastKey);
-            found = Find_Next(ffd);
-        }
-        if (ffd) {
-            Find_Close(ffd);
+        file_handle = FindFirstFile(scan_path, &find_data);
+        if (file_handle != INVALID_HANDLE_VALUE) {
+            do {
+                char* ptr = strdup(find_data.cFileName);
+                new MFCD(ptr, &FastKey);
+            } while (FindNextFile(file_handle, &find_data));
+            FindClose(file_handle);
         }
 
         path = CDFileClass::Get_Search_Path(p);
@@ -2121,6 +2371,28 @@ static void Init_Expansion_Files(void)
             break;
         }
     }
+
+#if (0)
+    /*
+    **	Before all else, cache any additional mixfiles.
+    */
+    struct find_t ff; // for _dos_findfirst
+    if (!_dos_findfirst("SC*.MIX", _A_NORMAL, &ff)) {
+        char* ptr;
+        do {
+            ptr = strdup(ff.name);
+            new MFCD(ptr, &FastKey);
+            MFCD::Cache(ptr);
+        } while (!_dos_findnext(&ff));
+    }
+    if (!_dos_findfirst("SS*.MIX", _A_NORMAL, &ff)) {
+        char* ptr;
+        do {
+            ptr = strdup(ff.name);
+            new MFCD(ptr, &FastKey);
+        } while (!_dos_findnext(&ff));
+    }
+#endif
 }
 
 /***********************************************************************************************
@@ -2221,12 +2493,65 @@ static void Init_CDROM_Access(void)
 
     /*
     **	Always try to look at the CD-ROM for data files.
-    **
-    **	This call is needed because of a side effect of this function. It will examine the
-    **	CD-ROMs attached to this computer and set the appropriate status values. Without this
-    **	call, the "?:\\" could not be filled in correctly.
     */
-    RequiredCD = Force_CD_Available(-1) ? -1 : -2;
+    if (!CCFileClass::Is_There_Search_Drives()) {
+
+        /*
+        **	This call is needed because of a side effect of this function. It will examine the
+        **	CD-ROMs attached to this computer and set the appropriate status values. Without this
+        **	call, the "?:\\" could not be filled in correctly.
+        */
+        Force_CD_Available(-1);
+
+        /*
+        ** If there are no search drives specified then we must be playing
+        ** off cd, so read files from there.
+        */
+        int error;
+
+        do {
+            error = CCFileClass::Set_Search_Drives("?:\\");
+            switch (error) {
+            case 1:
+                VisiblePage.Clear();
+                GamePalette.Set();
+                Show_Mouse();
+                WWMessageBox().Process(TXT_CD_ERROR1, TXT_OK);
+                Prog_End("Init_CDROM_Access - CD_ERROR1", true);
+                Emergency_Exit(EXIT_FAILURE);
+
+            case 2:
+                VisiblePage.Clear();
+                GamePalette.Set();
+                Show_Mouse();
+                if (WWMessageBox().Process(TXT_CD_DIALOG_1, TXT_OK, TXT_CANCEL) == 1) {
+                    Prog_End("Init_CDROM_Access - CD_ERROR2", true);
+                    Emergency_Exit(EXIT_FAILURE);
+                }
+                Hide_Mouse();
+                break;
+
+            default:
+                VisiblePage.Clear();
+                Show_Mouse();
+                if (!Force_CD_Available(RequiredCD)) {
+                    Prog_End("Init_CDROM_Access - Force_CD_Available failed", true);
+                    Emergency_Exit(EXIT_FAILURE);
+                }
+                Hide_Mouse();
+                break;
+            }
+        } while (error);
+
+        RequiredCD = -1;
+    } else {
+
+        /*
+        ** If there are search drives specified then all files are to be
+        ** considered local.
+        */
+        RequiredCD = -2;
+    }
 }
 
 /***********************************************************************************************
@@ -2247,12 +2572,6 @@ static void Init_CDROM_Access(void)
  *=============================================================================================*/
 static void Init_Bootstrap_Mixfiles(void)
 {
-#ifdef REMASTER_BUILD
-    const bool is_remaster = true;
-#else
-    const bool is_remaster = false;
-#endif
-
     int temp = RequiredCD;
     RequiredCD = -2;
 
@@ -2275,18 +2594,18 @@ static void Init_Bootstrap_Mixfiles(void)
 
 #ifdef FIXIT_CSII //	Ok. ajw
     bool ok1;
-    if (RESFACTOR != 1 && !is_remaster) {
-        CCFileClass fileHires1Mix("HIRES1.MIX");
-        if (fileHires1Mix.Is_Available()) {
-            new MFCD("HIRES1.MIX", &FastKey);
-            ok1 = MFCD::Cache("HIRES1.MIX");
-            assert(ok1);
-        }
-    } else {
-        new MFCD("LORES1.MIX", &FastKey);
-        ok1 = MFCD::Cache("LORES1.MIX");
-        //assert(ok1);
+#ifndef REMASTER_BUILD
+    CCFileClass fileHires1Mix("HIRES1.MIX");
+    if (fileHires1Mix.Is_Available()) {
+        new MFCD("HIRES1.MIX", &FastKey);
+        ok1 = MFCD::Cache("HIRES1.MIX");
+        assert(ok1);
     }
+#else
+    new MFCD("LORES1.MIX", &FastKey);
+    ok1 = MFCD::Cache("LORES1.MIX");
+    assert(ok1);
+#endif
 #endif
 
 #ifdef FIXIT_ANTS //	Ok. ajw
@@ -2308,17 +2627,17 @@ static void Init_Bootstrap_Mixfiles(void)
     bool ok = MFCD::Cache("LOCAL.MIX");
     assert(ok);
 
-    if (RESFACTOR != 1 && !is_remaster) {
-        new MFCD("HIRES.MIX", &FastKey);
-        ok = MFCD::Cache("HIRES.MIX");
-        assert(ok);
+#ifndef REMASTER_BUILD
+    new MFCD("HIRES.MIX", &FastKey);
+    ok = MFCD::Cache("HIRES.MIX");
+    assert(ok);
 
-        new MFCD("NCHIRES.MIX", &FastKey); //Non-cached hires stuff incl VQ palettes
-    } else {
-        new MFCD("LORES.MIX", &FastKey);
-        ok = MFCD::Cache("LORES.MIX");
-        assert(ok);
-    }
+    new MFCD("NCHIRES.MIX", &FastKey); //Non-cached hires stuff incl VQ palettes
+#else
+    new MFCD("LORES.MIX", &FastKey);
+    ok = MFCD::Cache("LORES.MIX");
+    assert(ok);
+#endif // WIN32
 
     RequiredCD = temp;
 }
@@ -2338,10 +2657,46 @@ static void Init_Bootstrap_Mixfiles(void)
  * HISTORY:                                                                                    *
  *   06/03/1996 JLB : Created.                                                                 *
  *=============================================================================================*/
+//#define DENZIL_MIXEXTRACT
+#ifdef DENZIL_MIXEXTRACT
+void Extract(char* filename, char* outfile);
+#endif
+
 static void Init_Secondary_Mixfiles(void)
 {
     MainMix = new MFCD("MAIN.MIX", &FastKey);
     assert(MainMix != NULL);
+
+// Denzil extract mixfile
+#ifdef DENZIL_MIXEXTRACT
+#if (0)
+    Extract("CONQUER.MIX", "o:\\projects\\radvd\\data\\extract\\conquer.mix");
+    Extract("EDHI.MIX", "o:\\projects\\radvd\\data\\extract\\edhi.mix");
+    Extract("EDLO.MIX", "o:\\projects\\radvd\\data\\extract\\edlo.mix");
+    Extract("GENERAL.MIX", "o:\\projects\\radvd\\data\\extract\\general.mix");
+    Extract("INTERIOR.MIX", "o:\\projects\\radvd\\data\\extract\\interior.mix");
+    Extract("MOVIES1.MIX", "o:\\projects\\radvd\\data\\extract\\movies1.mix");
+    Extract("SCORES.MIX", "o:\\projects\\radvd\\data\\extract\\scores.mix");
+    Extract("SNOW.MIX", "o:\\projects\\radvd\\data\\extract\\snow.mix");
+    Extract("SOUNDS.MIX", "o:\\projects\\radvd\\data\\extract\\sounds.mix");
+    Extract("RUSSIAN.MIX", "o:\\projects\\radvd\\data\\extract\\russian.mix");
+    Extract("ALLIES.MIX", "o:\\projects\\radvd\\data\\extract\\allies.mix");
+    Extract("TEMPERAT.MIX", "o:\\projects\\radvd\\data\\extract\\temperat.mix");
+#else
+    Extract("CONQUER.MIX", "o:\\projects\\radvd\\data\\extract\\conquer.mix");
+    Extract("EDHI.MIX", "o:\\projects\\radvd\\data\\extract\\edhi.mix");
+    Extract("EDLO.MIX", "o:\\projects\\radvd\\data\\extract\\edlo.mix");
+    Extract("GENERAL.MIX", "o:\\projects\\radvd\\data\\extract\\general.mix");
+    Extract("INTERIOR.MIX", "o:\\projects\\radvd\\data\\extract\\interior.mix");
+    Extract("MOVIES2.MIX", "o:\\projects\\radvd\\data\\extract\\movies2.mix");
+    Extract("SCORES.MIX", "o:\\projects\\radvd\\data\\extract\\scores.mix");
+    Extract("SNOW.MIX", "o:\\projects\\radvd\\data\\extract\\snow.mix");
+    Extract("SOUNDS.MIX", "o:\\projects\\radvd\\data\\extract\\sounds.mix");
+    Extract("RUSSIAN.MIX", "o:\\projects\\radvd\\data\\extract\\russian.mix");
+    Extract("ALLIES.MIX", "o:\\projects\\radvd\\data\\extract\\allies.mix");
+    Extract("TEMPERAT.MIX", "o:\\projects\\radvd\\data\\extract\\temperat.mix");
+#endif
+#endif
 
     /*
     **	Inform the file system of the various MIX files.
@@ -2409,10 +2764,12 @@ static void Bootstrap(void)
     ** the screen.
     */
 #ifndef REMASTER_BUILD
+#ifdef WIN32
     do {
         Keyboard->Check();
     } while (!GameInFocus);
     AllSurfaces.SurfacesRestored = false;
+#endif
 
     /*
     **	Perform any special debug-only processing. This includes preparing the
@@ -2432,10 +2789,31 @@ static void Bootstrap(void)
     */
     Init_Fonts();
 
+#ifndef WIN32
     /*
-    **	Setup the keyboard processor in preparation for the game.
+    **	Install the hard error handler.
     */
+    _harderr(harderr_handler); // BG: Install hard error handler
+
+    /*
+    ** Install a Page Fault handler
+    */
+    if (UsePageFaultHandler) {
+        Install_Page_Fault_Handle();
+    }
+#endif
+
+/*
+**	Setup the keyboard processor in preparation for the game.
+*/
+#ifdef WIN32
     Keyboard->Clear();
+#else
+    Keyboard_Attributes_Off(BREAKON | SCROLLLOCKON | TRACKEXT | PAUSEON | CTRLSON | CTRLCON | FILTERONLY
+                            | TASKSWITCHABLE);
+    Keyboard_Attributes_On(PASSBREAKS);
+    Keyboard->Clear();
+#endif
 
     /*
     **	This is the shape staging buffer. It must always be available, so it is
@@ -2509,7 +2887,7 @@ static void Init_Mouse(void)
     ** Since there is no mouse shape currently available we need
     ** to set one of our own.
     */
-#if defined(_WIN32) && !defined(SDL_BUILD)
+#ifdef WIN32
     ShowCursor(false);
 #endif
     if (MouseInstalled) {
@@ -2559,7 +2937,12 @@ static void Init_Authorization(void)
         return;
 
     Load_Title_Page();
+#ifdef WIN32
     Wait_Vert_Blank();
+#else  // WIN32
+    Init_Delay();
+    Wait_Vert_Blank(VertBlank);
+#endif // WIN32
 
     CCPalette.Set();
     //		Set_Palette(Palette);
@@ -2586,7 +2969,7 @@ static void Init_Authorization(void)
 #ifdef NEVER
     while (!ok && counter) {
         SmartPtr<char const> str = Fetch_Password(TXT_PASSWORD_CAPTION, TXT_PASSWORD_MESSAGE, TXT_OK);
-        SmartPtr<int const> lptr = &CheatCodes[0];
+        SmartPtr<long const> lptr = &CheatCodes[0];
         while (*lptr) {
             if (Obfuscate(str) == *lptr++) {
                 ok = true;
@@ -2789,6 +3172,32 @@ void __PRO(void)
     //	printf("_pro\n");
 }
 
+#ifdef DENZIL_MIXEXTRACT
+void Extract(char* filename, char* outname)
+{
+    CCFileClass inFile(filename);
+    CCFileClass outFile(outname);
+
+    inFile.Open();
+    outFile.Open(WRITE);
+
+    void* buffer = malloc(32768);
+
+    if (buffer) {
+        unsigned long size = inFile.Size();
+        unsigned long bytes;
+
+        while (size > 0) {
+            bytes = inFile.Read(buffer, 32768);
+            outFile.Write(buffer, bytes);
+            size -= bytes;
+        }
+
+        free(buffer);
+    }
+}
+#endif
+
 /***********************************************************************************************
  * Free_Heaps -- Clear out the heaps before exit                                               *
  *                                                                                             *
@@ -2886,7 +3295,7 @@ void Free_Heaps(void)
     */
     for (int index = 0; index < ARRAY_SIZE(SpeechBuffer); index++) {
         if (SpeechBuffer[index]) {
-            delete[] static_cast<char*>(SpeechBuffer[index]);
+            delete[] SpeechBuffer[index];
             SpeechBuffer[index] = NULL;
         }
     }
@@ -2898,10 +3307,318 @@ void Free_Heaps(void)
         delete TheaterBuffer;
         TheaterBuffer = NULL;
     }
+}
 
-    /* Deallocate the interpolation table.  */
-    if (InterpolationTable) {
-        delete InterpolationTable;
-        InterpolationTable = NULL;
-    }
+void Read_Spawner_Alliances_Settings(INIClass &spawnini) {
+
+	char Section[32];
+
+	for (int i = 0; i < 8; i++) {
+		Session.HouseAlliances.Add(0);
+
+		sprintf(Section, "Multi%d_Alliances", i+1);
+
+
+		
+		int house = spawnini.Get_Int(Section, "HouseAllyOne", -1);
+		if (house != -1) {
+			Session.HouseAlliances[i] |= 1UL << house;
+		}
+
+		house = spawnini.Get_Int(Section, "HouseAllyTwo", -1);
+		if (house != -1) {
+			Session.HouseAlliances[i] |= 1UL << house;
+		}
+
+		house = spawnini.Get_Int(Section, "HouseAllyThree", -1);
+		if (house != -1) {
+			Session.HouseAlliances[i] |= 1UL << house;
+		}
+
+		house = spawnini.Get_Int(Section, "HouseAllyFour", -1);
+		if (house != -1) {
+			Session.HouseAlliances[i] |= 1UL << house;
+		}
+
+		house = spawnini.Get_Int(Section, "HouseAllyFive", -1);
+		if (house != -1) {
+			Session.HouseAlliances[i] |= 1UL << house;
+		}
+
+		house = spawnini.Get_Int(Section, "HouseAllySix", -1);
+		if (house != -1) {
+			Session.HouseAlliances[i] |= 1UL << house;
+		}
+
+		house = spawnini.Get_Int(Section, "HouseAllySeven", -1);
+		if (house != -1) {
+			Session.HouseAlliances[i] |= 1UL << house;
+		}
+	}
+
+}
+
+void Read_Spawner_Houses_Settings(INIClass &spawnini) {
+	Session.SpawnLocationOverrides.Add(spawnini.Get_Int("SpawnLocations", "Multi1", -1));
+	Session.SpawnLocationOverrides.Add(spawnini.Get_Int("SpawnLocations", "Multi2", -1));
+	Session.SpawnLocationOverrides.Add(spawnini.Get_Int("SpawnLocations", "Multi3", -1));
+	Session.SpawnLocationOverrides.Add(spawnini.Get_Int("SpawnLocations", "Multi4", -1));
+	Session.SpawnLocationOverrides.Add(spawnini.Get_Int("SpawnLocations", "Multi5", -1));
+	Session.SpawnLocationOverrides.Add(spawnini.Get_Int("SpawnLocations", "Multi6", -1));
+	Session.SpawnLocationOverrides.Add(spawnini.Get_Int("SpawnLocations", "Multi7", -1));
+	Session.SpawnLocationOverrides.Add(spawnini.Get_Int("SpawnLocations", "Multi8", -1));
+
+	Session.HouseColorOverrides.Add((PlayerColorType)spawnini.Get_Int("HouseColours", "Multi1", -1));
+	Session.HouseColorOverrides.Add((PlayerColorType)spawnini.Get_Int("HouseColours", "Multi2", -1));
+	Session.HouseColorOverrides.Add((PlayerColorType)spawnini.Get_Int("HouseColours", "Multi3", -1));
+	Session.HouseColorOverrides.Add((PlayerColorType)spawnini.Get_Int("HouseColours", "Multi4", -1));
+	Session.HouseColorOverrides.Add((PlayerColorType)spawnini.Get_Int("HouseColours", "Multi5", -1));
+	Session.HouseColorOverrides.Add((PlayerColorType)spawnini.Get_Int("HouseColours", "Multi6", -1));
+	Session.HouseColorOverrides.Add((PlayerColorType)spawnini.Get_Int("HouseColours", "Multi7", -1));
+	Session.HouseColorOverrides.Add((PlayerColorType)spawnini.Get_Int("HouseColours", "Multi8", -1));
+
+	Session.HouseCountryOverrides.Add((HousesType)spawnini.Get_Int("HouseCountries", "Multi1", -1));
+	Session.HouseCountryOverrides.Add((HousesType)spawnini.Get_Int("HouseCountries", "Multi2", -1));
+	Session.HouseCountryOverrides.Add((HousesType)spawnini.Get_Int("HouseCountries", "Multi3", -1));
+	Session.HouseCountryOverrides.Add((HousesType)spawnini.Get_Int("HouseCountries", "Multi4", -1));
+	Session.HouseCountryOverrides.Add((HousesType)spawnini.Get_Int("HouseCountries", "Multi5", -1));
+	Session.HouseCountryOverrides.Add((HousesType)spawnini.Get_Int("HouseCountries", "Multi6", -1));
+	Session.HouseCountryOverrides.Add((HousesType)spawnini.Get_Int("HouseCountries", "Multi7", -1));
+	Session.HouseCountryOverrides.Add((HousesType)spawnini.Get_Int("HouseCountries", "Multi8", -1));
+
+	Session.HouseHandicapOverrides.Add((DiffType)spawnini.Get_Int("HouseHandicaps", "Multi1", -1));
+	Session.HouseHandicapOverrides.Add((DiffType)spawnini.Get_Int("HouseHandicaps", "Multi2", -1));
+	Session.HouseHandicapOverrides.Add((DiffType)spawnini.Get_Int("HouseHandicaps", "Multi3", -1));
+	Session.HouseHandicapOverrides.Add((DiffType)spawnini.Get_Int("HouseHandicaps", "Multi4", -1));
+	Session.HouseHandicapOverrides.Add((DiffType)spawnini.Get_Int("HouseHandicaps", "Multi5", -1));
+	Session.HouseHandicapOverrides.Add((DiffType)spawnini.Get_Int("HouseHandicaps", "Multi6", -1));
+	Session.HouseHandicapOverrides.Add((DiffType)spawnini.Get_Int("HouseHandicaps", "Multi7", -1));
+	Session.HouseHandicapOverrides.Add((DiffType)spawnini.Get_Int("HouseHandicaps", "Multi8", -1));
+
+	Session.SpectatorHouses.Add(spawnini.Get_Bool("IsSpectator", "Multi1", false));
+	Session.SpectatorHouses.Add(spawnini.Get_Bool("IsSpectator", "Multi2", false));
+	Session.SpectatorHouses.Add(spawnini.Get_Bool("IsSpectator", "Multi3", false));
+	Session.SpectatorHouses.Add(spawnini.Get_Bool("IsSpectator", "Multi4", false));
+	Session.SpectatorHouses.Add(spawnini.Get_Bool("IsSpectator", "Multi5", false));
+	Session.SpectatorHouses.Add(spawnini.Get_Bool("IsSpectator", "Multi6", false));
+	Session.SpectatorHouses.Add(spawnini.Get_Bool("IsSpectator", "Multi7", false));
+	Session.SpectatorHouses.Add(spawnini.Get_Bool("IsSpectator", "Multi8", false));
+
+	Read_Spawner_Alliances_Settings(spawnini);
+}
+
+
+bool Read_Spawner_Game_Options_And_Launch_Match()
+{
+	if (SpawnerActive == true)
+	{
+		return false;
+	}
+
+	SpawnerActive = true;
+
+	CCFileClass spawnfile;
+	spawnfile.Open("spawn.ini");
+
+	if (!spawnfile.Is_Available()) {
+		return false;
+	}
+
+
+	INIClass spawnini;
+
+	if (!spawnini.Load(spawnfile)) {
+		return false;
+	}
+
+	
+	Session.Type = GAME_SKIRMISH;
+	Session.CommProtocol = (CommProtocolEnum)spawnini.Get_Int("Settings", "NetworkVersionProtocol", 0);
+	Session.Options.ScenarioIndex = 0;
+
+	char ip[35];
+	spawnini.Get_String("Tunnel", "IP", "", ip, 32);
+	//TunnelIP = inet_addr(ip);
+
+	int port = spawnini.Get_Int("Tunnel", "Port", 0);
+	//TunnelPort = htonl(port & 0xffff);
+	//TunnelID = TunnelPort;
+
+	Read_Spawner_Houses_Settings(spawnini);
+
+
+	//if (TunnelPort == 0) {
+
+	PlanetWestwoodPortNumber = spawnini.Get_Int("Settings", "Port", 1234);
+	//}
+
+	Session.Options.Bases = spawnini.Get_Int("Settings", "Bases", 1);
+	Session.Options.Credits = spawnini.Get_Int("Settings", "Credits", 10000);
+	Session.Options.Tiberium = spawnini.Get_Int("Settings", "Credits", 1);
+
+	if (Session.Options.Tiberium) {
+		Special.IsTGrowth = 1;
+		Special.IsTSpread = 1;
+	}
+	else {
+		Special.IsTGrowth = 0;
+		Special.IsTSpread = 0;
+	}
+
+	Session.Options.Goodies = spawnini.Get_Int("Settings", "Crates", 0);
+	Session.Options.UnitCount = spawnini.Get_Int("Settings", "UnitCount", 0);
+	Session.Options.AIPlayers = spawnini.Get_Int("Settings", "AIPlayers", 0);
+
+	Special.IsCaptureTheFlag = (unsigned int)spawnini.Get_Bool("Settings", "CaptureTheFlag", false);
+
+	Seed = spawnini.Get_Int("Settings", "Seed", 0);
+	RandNumb = Seed;
+	Scen.RandomNumber = Seed;
+	CustomSeed = Seed;
+
+	UnitBuildPenalty = 0x64;
+	if (spawnini.Get_Bool("Settings", "SlowBuild", false)) {
+		UnitBuildPenalty = 0xFA;
+	}
+
+	Special.IsShadowGrow = (unsigned int)spawnini.Get_Bool("Settings", "ShroudRegrows", false);
+	BuildLevel = spawnini.Get_Int("Settings", "TechLevel", 10);
+
+	int AIDifficulty = spawnini.Get_Int("Settings", "AIDifficulty", 2);
+
+	Scen.Difficulty = DIFF_NORMAL;
+	Scen.CDifficulty = DIFF_NORMAL;
+
+
+	if (AIDifficulty < 2) {
+		Scen.Difficulty = DIFF_EASY;
+		Scen.CDifficulty = DIFF_HARD;
+	}
+	if (AIDifficulty > 2) {
+		Scen.Difficulty = DIFF_HARD;
+		Scen.CDifficulty = DIFF_EASY;
+	}
+
+	if (spawnini.Get_Bool("Settings", "Aftermath", false)) {
+		bAftermathMultiplayer = NewUnitsEnabled = true;
+	}
+
+	NodeNameType *nnt = new NodeNameType;
+
+	char NameBuf[32];
+	spawnini.Get_String("Settings", "Name", "", NameBuf, 32);
+	strcpy(nnt->Name, NameBuf);
+
+	nnt->Player.House = (HousesType)spawnini.Get_Int("Settings", "Side", 0);
+	nnt->Player.Color = (PlayerColorType)spawnini.Get_Int("Settings", "Color", 0);
+	Session.ColorIdx = nnt->Player.Color;
+	Session.PrefColor = nnt->Player.Color;
+
+	Session.Players.Add(nnt);
+
+	char OtherBuf[32];
+	int playercounter = 0;
+
+	while (true) {
+		playercounter++;
+		sprintf(OtherBuf, "Other%d", playercounter);
+
+		char OtherPlayerNameBuf[32];
+		spawnini.Get_String(OtherBuf, "Name", "", OtherPlayerNameBuf, 32);
+
+		if (*OtherPlayerNameBuf == NULL) {
+			break;
+		}
+
+		NodeNameType *nnt = new NodeNameType;
+
+		strcpy(nnt->Name, OtherPlayerNameBuf);
+		nnt->Player.House = (HousesType)spawnini.Get_Int(OtherBuf, "Side", 0);
+		nnt->Player.Color = (PlayerColorType)spawnini.Get_Int(OtherBuf, "Color", 0);
+
+		// Make sure we're in online mode if there are more playres than just ourself
+		Session.Type = GAME_INTERNET;
+
+		char OtherPlayerIPBuf[32];
+		spawnini.Get_String(OtherBuf, "IP", "", OtherPlayerIPBuf, 32);
+		int OtherPlayerIP = inet_addr(OtherPlayerIPBuf);
+
+		int OtherPlayerPort = htonl(spawnini.Get_Int(OtherBuf, "Port", 1234) & 0xffff);
+
+		NetNodeType netnode;
+		NetNumType netnum;
+		memcpy(netnum, &OtherPlayerPort, 4);
+
+		// yes nasty hack ahead
+		// zero out all 6 bytes from ipx
+		memset(&netnode, 0x0, sizeof(netnode));
+		// set first 4 byts to ip
+		memcpy(&netnode, &OtherPlayerIP, 4);
+
+		nnt->Address.Set_Address(netnum, netnode);
+
+		Session.Players.Add(nnt);
+	}
+
+	Options.GameSpeed = spawnini.Get_Int("Settings", "GameSpeed", 1);
+
+
+	// Initialize networking
+	if (Session.Type == GAME_INTERNET) {
+		PacketTransport = new UDPInterfaceClass;
+		PacketTransport->Init();
+		PacketTransport->Open_Socket(0);
+		PacketTransport->Start_Listening();
+		PacketTransport->Discard_In_Buffers();
+		PacketTransport->Discard_Out_Buffers();
+
+		Init_Network();
+
+		Session.MaxAhead = spawnini.Get_Int("Settings", "MaxAhead", 15);
+		Session.FrameSendRate = spawnini.Get_Int("Settings", "FrameSendRate", 3);
+
+		Ipx.Set_Timing(25, -1, 744);
+	}
+
+	//PlanetWestwoodStartTime = (int)time(0);
+	//PlanetWestwoodGameID = spawnini.Get_Int("Settings", "GameID", 0);
+
+	Init_Random();
+
+	char ScenBuf[512];
+	spawnini.Get_String("Settings", "Scenario", "", ScenBuf, 512);
+	strcpy(Scen.ScenarioName, ScenBuf);
+
+	// Should be done after loading scenario according to WW dev comment
+	// but it works just fine beforescenario load in cncnet spawner asm code
+	// so I dunno if this needs to be moved
+	Session.Messages.Init(Map.TacPixelX,
+		Map.TacPixelY,           // x,y for messages
+		6,                       // max # msgs
+		MAX_MESSAGE_LENGTH - 14, // max msg length
+		7 * RESFACTOR,           // font height in pixels
+		-1,
+		-1,                      // x,y for edit line (appears above msgs)
+		0,                       // BG		1,							// enable edit overflow
+		20,                      // min,
+		MAX_MESSAGE_LENGTH - 14, //    max for trimming overflow
+		Lepton_To_Pixel(Map.TacLeptonWidth)); // Width in pixels of buffer
+
+	if (spawnini.Get_Bool("Settings", "IsSinglePlayer", false)) {
+		Session.Type = GAME_NORMAL;
+	}
+
+	if (spawnini.Get_Bool("Settings", "LoadSaveGame", 0)) {
+		char SaveGameName[128];
+		spawnini.Get_String("Settings", "SaveGameName", "", SaveGameName, 128);
+		Load_Game(SaveGameName);
+	}
+	else {
+		Start_Scenario(Scen.ScenarioName, 1);
+	}
+
+	Session.Create_Connections();
+	Call_Back();
+
+	return true;
 }

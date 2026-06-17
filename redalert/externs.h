@@ -65,6 +65,9 @@ class CarryoverClass;
 #define GBUFF_INIT_HEIGHT 400
 #endif
 
+#define HIRES_ADJ_W ((ScreenWidth - 640) / 2)
+#define HIRES_ADJ_H ((ScreenHeight - 400) /2)
+
 extern char _staging_buffer[32000];
 void _PRO(void);
 
@@ -140,6 +143,9 @@ extern GraphicViewPortClass SeenBuff;
 extern GraphicBufferClass SysMemPage;
 extern int ScreenWidth;
 extern int ScreenHeight;
+extern int OutputWidth;
+extern int OutputHeight;
+extern bool Show640x480BlackBars;
 extern GraphicBufferClass ModeXBuff;
 
 /*

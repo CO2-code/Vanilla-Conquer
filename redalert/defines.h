@@ -33,8 +33,6 @@
 #ifndef DEFINES_H
 #define DEFINES_H
 
-#include "endianness.h"
-
 /**********************************************************************
 **	Language control: define the desired language for this build.
 */
@@ -55,6 +53,12 @@
 //#define	INTERNAL_VERSION
 //#define	PLAYTEST_VERSION
 #define RELEASE_VERSION
+
+/**********************************************************************
+** ColinM
+** Set this to enable dongle protection
+*/
+//#define DONGLE
 
 // Enable 640x400 VQ movie capability in WIN32 mode
 #define MOVIE640
@@ -102,7 +106,7 @@
 //#define	FIXIT_FAST_LOAD			// Enables faster INI loading
 
 // These fixes will cause the game to go out of sync.
-#define FIXIT_ENGINEER_CAPTURE // If building allied, will still capture if engineer not allied with building.
+//#define	FIXIT_ENGINEER_CAPTURE	// If building not allied, will still capture if engineer not allied with building.
 //#define	FIXIT_HELI_LANDING	// Fixes so new helicopters land at free helipad
 //#define	FIXIT_MINE_PASSABLE	// Fixes units not driving onto mines
 
@@ -122,14 +126,16 @@
 #define FIXIT_VERSION_3
 #define DVD
 
+// Define DVD to turn on RADVD additions/changes - Denzil
+#ifdef DVD
+//#define INTERNET_OFF
+//#define MPEGMOVIE	//PG
+//#define MCIMPEG
+#endif
+
 // Test to see if partial object drawing is any faster.
-#ifdef REMASTER_BUILD
 //#define	PARTIAL
 #define SORTDRAW
-#else
-#define PARTIAL
-//#define SORTDRAW
-#endif
 
 /**********************************************************************
 **	If the scenario editor to to be active in this build then uncomment
@@ -191,7 +197,7 @@
 ** This is the multiplier factor to convert low resution coordinates
 **	into their actual resolution counterparts.
 */
-extern int RESFACTOR;
+#define RESFACTOR 2
 
 #define SIDEBAR_WID 80
 
@@ -503,22 +509,28 @@ typedef union
 } COORD_COMPOSITE;
 
 typedef signed short CELL;
+#ifdef __BIG_ENDIAN__
+#warning "FIXME"
+//#define SLUFF_BITS (sizeof(CELL) * CHAR_BIT) - (14)
+#endif
 typedef union
 {
     CELL Cell;
     struct
     {
 #ifdef __BIG_ENDIAN__
+#if SLUFF_BITS
         /*
         **	Unused upper bits will cause problems on a big-endian machine unless they
         **	are deliberately accounted for.
         */
-        unsigned short sluff : 2;
-        unsigned short Y : 7;
-        unsigned short X : 7;
+        unsigned sluff : SLUF_BITS;
+#endif
+        unsigned Y : 7;
+        unsigned X : 7;
 #else
-        unsigned short X : 7;
-        unsigned short Y : 7;
+        unsigned X : 7;
+        unsigned Y : 7;
 #endif
     } Sub;
 } CELL_COMPOSITE;
@@ -530,18 +542,14 @@ typedef int WAYPOINT;
 **	and an index value of 0, the target value returned is identical with
 **	TARGET_NONE. This is by design and is necessary.
 */
-typedef int TARGET;
-
-/* Safe cast to target type */
-#define TARGET_SAFE_CAST(x) (static_cast<TARGET>(reinterpret_cast<intptr_t>((void*)(x))))
+typedef long TARGET;
 
 #define TARGET_MANTISSA 24 // Bits of value precision.
 #define TARGET_EXPONENT 8
-#pragma pack(push, 1)
 typedef union
 {
     TARGET Target;
-    struct BITFIELD_STRUCT
+    struct
     {
 #ifdef __BIG_ENDIAN__
         unsigned Exponent : TARGET_EXPONENT;
@@ -552,7 +560,7 @@ typedef union
 #endif
     } Sub;
 } TARGET_COMPOSITE;
-#pragma pack(pop)
+
 inline TARGET Build_Target(RTTIType kind, int value)
 {
     TARGET_COMPOSITE target;
@@ -1191,12 +1199,13 @@ typedef enum PlayerColorType : char
     PCOLOR_RED,
     PCOLOR_GREEN,
     PCOLOR_ORANGE,
+// Fix grey dead player names + kills in radar sceen for standalone
 #ifdef REMASTER_BUILD
-    PCOLOR_BLUE, // This is actually the red scheme used in the dialogs
-    PCOLOR_GREY,
+	PCOLOR_BLUE,
+	PCOLOR_GREY, // This is actually the red scheme used in the dialogs
 #else
-    PCOLOR_GREY,
-    PCOLOR_BLUE,
+	PCOLOR_GREY,
+    PCOLOR_BLUE, // This is actually the red scheme used in the dialogs
 #endif
     PCOLOR_BROWN,
     PCOLOR_TYPE,
@@ -2505,11 +2514,6 @@ typedef enum FormationType : unsigned char
     FORMATION_FIRST = 0
 } FormationType;
 
-/*
-** When a unit is not in formation this magic value is used.
-*/
-#define INVALID_FORMATION 0x80000000
-
 /****************************************************************************
 **	Selected units have a special selected unit box around them. These are the
 **	defines for the two types of selected unit boxes. One is for infantry and
@@ -3507,13 +3511,13 @@ typedef struct
 */
 typedef struct
 {
-    CELL Start;            // Starting cell number.
-    int Cost;              // Accumulated terrain cost.
-    int Length;            // Command string length.
-    FacingType* Command;   // Pointer to command string.
-    unsigned int* Overlap; // Pointer to overlap list
-    CELL LastOverlap;      // stores position of last overlap
-    CELL LastFixup;        // stores position of last overlap
+    CELL Start;             // Starting cell number.
+    int Cost;               // Accumulated terrain cost.
+    int Length;             // Command string length.
+    FacingType* Command;    // Pointer to command string.
+    unsigned long* Overlap; // Pointer to overlap list
+    CELL LastOverlap;       // stores position of last overlap
+    CELL LastFixup;         // stores position of last overlap
 } PathType;
 
 /**********************************************************************

@@ -6232,7 +6232,7 @@ bool TechnoClass::Evaluate_Object(ThreatType method,
         */
         if (Is_Foot() && ((FootClass*)this)->Group != 0xFF && ((FootClass*)this)->Group < 10) {
             int yval = -1;
-            int group = ((FootClass*)this)->Group;
+            int group = ((FootClass*)this)->Group + 1;
 
 #ifndef REMASTER_BUILD
             // Original code was Group + 1, remaster changed that and it affects legacy renderer.
