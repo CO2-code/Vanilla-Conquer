@@ -1,4 +1,4 @@
-//
+﻿//
 // Copyright 2020 Electronic Arts Inc.
 //
 // TiberianDawn.DLL and RedAlert.dll and corresponding source code is free
@@ -77,7 +77,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "interpal.h"
+#include "interpal.h"%0A#include "spectator.h"
 #include "spectator.h"
 #include "vortex.h"
 #include "common/framelimit.h"
@@ -1813,7 +1813,7 @@ bool Main_Loop()
         
         // Disabled for now for replay code, will be enabled in the future
         // if attract features is restored
-        //Do_Record_Playback();
+        Do_Record_Playback();
     }
 
 #ifndef SORTDRAW
@@ -4090,7 +4090,7 @@ bool Force_CD_Available(int cd)
 #endif
 
 #ifdef FRENCH
-                sprintf(buffer, "InsŠrez le %s", _cd_name[cd]);
+                sprintf(buffer, "InsÅ rez le %s", _cd_name[cd]);
 #else
 #ifdef GERMAN
                 sprintf(buffer, "Bitte %s", _cd_name[cd]);
@@ -4101,7 +4101,7 @@ bool Force_CD_Available(int cd)
             } else {
 #ifdef DVD
 #ifdef FRENCH
-                sprintf(buffer, "InsŠrez le %s", _cd_name[4]);
+                sprintf(buffer, "InsÅ rez le %s", _cd_name[4]);
 #else
 #ifdef GERMAN
                 sprintf(buffer, "Bitte %s", _cd_name[4]);
