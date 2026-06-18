@@ -64,6 +64,7 @@
 #include "common/framelimit.h"
 
 extern int PreserveVQAScreen;
+extern bool LaunchedFromSpawner;
 
 void Display_Briefing_Text_GlyphX();
 
@@ -2746,8 +2747,6 @@ void Write_Scenario_INI(char* fname)
     ini.Save(rawfile, true);
 #endif
 }
-
-extern bool LaunchedFromSpawner;
 
 void Assign_Houses_Spawner_Overrides() {
 	if (!LaunchedFromSpawner) {

@@ -130,7 +130,7 @@ template <class T> T MAX(T a, T b)
 #define PROC_PENTIUM 2
 
 // Inline Routines
-//ÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ
+//æ§˜æ§˜æ§˜æ§˜æ§˜æ§˜æ§˜æ§˜
 //
 // These Template functions are generally used
 // by classes when they havce over loaded > and <.

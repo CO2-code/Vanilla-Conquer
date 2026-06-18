@@ -17,6 +17,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <mmsystem.h>
 #ifndef OPENAL_BUILD
 #include <dsound.h>
 #endif

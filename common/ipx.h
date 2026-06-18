@@ -35,6 +35,8 @@
 #ifndef IPX_H
 #define IPX_H
 
+#include <stdint.h>
+
 /*
 ******************************** Structures *********************************
 */
