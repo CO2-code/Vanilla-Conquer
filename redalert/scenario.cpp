@@ -514,17 +514,19 @@ bool Read_Scenario(char* name)
                 }
             }
             CCINIClass ini;
-            CCFileClass mplayerIniFile("MPLAYER.INI");
-            if (ini.Load(mplayerIniFile, false)) {
-                Rule.General(ini);
-                Rule.Recharge(ini);
-                Rule.AI(ini);
-                Rule.Powerups(ini);
-                Rule.Land_Types(ini);
-                Rule.Themes(ini);
-                Rule.IQ(ini);
-                Rule.Objects(ini);
-                Rule.Difficulty(ini);
+            if (!LaunchedFromSpawner) {
+                CCFileClass mplayerIniFile("MPLAYER.INI");
+                if (ini.Load(mplayerIniFile, false)) {
+                    Rule.General(ini);
+                    Rule.Recharge(ini);
+                    Rule.AI(ini);
+                    Rule.Powerups(ini);
+                    Rule.Land_Types(ini);
+                    Rule.Themes(ini);
+                    Rule.IQ(ini);
+                    Rule.Objects(ini);
+                    Rule.Difficulty(ini);
+                }
             }
         }
 #endif

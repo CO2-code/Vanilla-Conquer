@@ -301,14 +301,26 @@ bool Init_Game(int, char*[])
     /*
     **	Find and process any rules for this game.
     */
-    CCFileClass rulesIniFile("RULES.INI");
-    if (RuleINI.Load(rulesIniFile, false)) {
-        Rule.Process(RuleINI);
+    if (LaunchedFromSpawner) {
+        CCFileClass spawnXdpFile("SPAWN.XDP");
+        if (RuleINI.Load(spawnXdpFile, false)) {
+            Rule.Process(RuleINI);
+        }
+    } else {
+        CCFileClass rulesIniFile("RULES.INI");
+        if (RuleINI.Load(rulesIniFile, false)) {
+            Rule.Process(RuleINI);
+        }
     }
 #ifdef FIXIT_CSII //	checked - ajw 9/28/98
     //  Aftermath runtime change 9/29/98
     //	This is safe to do, as only rules for aftermath units are included in this ini.
-    if (Is_Aftermath_Installed() == true) {
+    if (LaunchedFromSpawner) {
+        CCFileClass spawnamXdpFile("SPAWNAM.XDP");
+        if (AftermathINI.Load(spawnamXdpFile, false)) {
+            Rule.Process(AftermathINI);
+        }
+    } else if (Is_Aftermath_Installed() == true) {
         CCFileClass aftermathIniFile("AFTRMATH.INI");
         if (AftermathINI.Load(aftermathIniFile, false)) {
             Rule.Process(AftermathINI);
